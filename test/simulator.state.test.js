@@ -2,29 +2,36 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as simulator from '../src/simulator/state.js';
 
-test('cancelFlight marks the flight cancelled', () => {
+test('cancelNode marks the node cancelled', () => {
   simulator._resetForTests();
-  simulator.seedInventory('trip-1', [{ id: 'fl-1', scheduledArrival: '2026-08-08T10:00:00Z' }]);
+  simulator.seedTrip('trip-1', [{ id: 'fl-1', type: 'FLIGHT', scheduledArrival: '2026-08-08T10:00:00Z' }]);
 
-  const flight = simulator.cancelFlight('trip-1', 'fl-1');
+  const node = simulator.cancelNode('trip-1', 'fl-1');
 
-  assert.equal(flight.status, 'CANCELLED');
+  assert.equal(node.status, 'CANCELLED');
 });
 
 test('delayFlight shifts projected arrival by the given minutes', () => {
   simulator._resetForTests();
-  simulator.seedInventory('trip-1', [{ id: 'fl-1', scheduledArrival: '2026-08-08T10:00:00Z' }]);
+  simulator.seedTrip('trip-1', [{ id: 'fl-1', type: 'FLIGHT', scheduledArrival: '2026-08-08T10:00:00Z' }]);
 
   const flight = simulator.delayFlight('trip-1', 'fl-1', 90);
 
   assert.equal(flight.projectedArrival, '2026-08-08T11:30:00.000Z');
 });
 
-test('cancelFlight on an unknown flight throws', () => {
+test('delayFlight on a non-flight node throws', () => {
   simulator._resetForTests();
-  simulator.seedInventory('trip-1', []);
+  simulator.seedTrip('trip-1', [{ id: 'hotel-1', type: 'HOTEL' }]);
 
-  assert.throws(() => simulator.cancelFlight('trip-1', 'missing'), /Unknown flight/);
+  assert.throws(() => simulator.delayFlight('trip-1', 'hotel-1', 30), /not a FLIGHT/);
+});
+
+test('cancelNode on an unknown node throws', () => {
+  simulator._resetForTests();
+  simulator.seedTrip('trip-1', []);
+
+  assert.throws(() => simulator.cancelNode('trip-1', 'missing'), /Unknown node/);
 });
 
 test('bookFlight is idempotent for the same key', () => {

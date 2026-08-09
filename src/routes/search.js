@@ -1,22 +1,55 @@
 import { Router } from 'express';
 import { provider } from '../providers/index.js';
+import { normalizeFlightSearchResults } from '../normalize/flights.js';
+import { optionalAuth } from '../middleware/optionalAuth.js';
+import * as history from '../store/history.js';
 
-// Smoke-tests Sabre connectivity — the "looking" half. Booking/action routes
-// come later, behind the same provider port, once the simulator's actions
-// (Phase 6) are wired in.
+// Browse-only endpoints — no booking/checkout flow. Flights are real Sabre
+// data (InstaFlights); hotels/cabs are mock (see providers/index.js for why).
+// optionalAuth so browsing never requires login — a signed-in user just gets
+// their search auto-logged to history.
 const router = Router();
+router.use(optionalAuth);
 
-router.post('/flights', async (req, res, next) => {
+async function logHistory(req, category, results) {
+  if (!req.user) return;
+  await history.addEntry({
+    userId: req.user.id,
+    category,
+    query: req.query,
+    resultCount: results.length,
+  });
+}
+
+router.get('/flights', async (req, res, next) => {
   try {
-    res.json(await provider.searchFlights(req.body));
+    const { origin, destination, departuredate } = req.query;
+    const raw = await provider.searchFlights({ origin, destination, departuredate });
+    const results = normalizeFlightSearchResults(raw);
+    await logHistory(req, 'flights', results);
+    res.json({ source: 'sabre', query: req.query, results });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/hotels', async (req, res, next) => {
+router.get('/hotels', async (req, res, next) => {
   try {
-    res.json(await provider.searchHotels(req.body));
+    const { destination, checkIn, checkOut } = req.query;
+    const results = await provider.searchHotels({ destination, checkIn, checkOut });
+    await logHistory(req, 'hotels', results);
+    res.json({ source: 'mock', query: req.query, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/cabs', async (req, res, next) => {
+  try {
+    const { destination } = req.query;
+    const results = await provider.searchCabs({ destination });
+    await logHistory(req, 'cabs', results);
+    res.json({ source: 'mock', query: req.query, results });
   } catch (err) {
     next(err);
   }

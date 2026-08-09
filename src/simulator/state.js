@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 // In-memory only — this is the "doing" half CLAUDE.md describes: cancellation,
 // seat scarcity, booking, and injected failures, all under our control since
 // no airline gives sandbox access to reissue a real ticket.
-const trips = new Map(); // tripId -> { id, flights: [] }
+//
+// Trip shape matches CLAUDE.md's data model: a trip is a set of linked nodes
+// (FLIGHT | GROUND | HOTEL | COMMITMENT), each with `dependsOn` so impact
+// analysis can walk what breaks downstream of a disruption.
+const trips = new Map(); // tripId -> { id, nodes: [] }
 const bookings = new Map(); // bookingId -> booking
 const idempotencyResults = new Map(); // idempotencyKey -> bookingId
 
@@ -15,36 +19,42 @@ function requireTrip(tripId) {
   return trip;
 }
 
-function requireFlight(tripId, flightId) {
-  const flight = requireTrip(tripId).flights.find((f) => f.id === flightId);
-  if (!flight) throw new Error(`Unknown flight ${flightId} on trip ${tripId}`);
-  return flight;
+function requireNode(tripId, nodeId) {
+  const node = requireTrip(tripId).nodes.find((n) => n.id === nodeId);
+  if (!node) throw new Error(`Unknown node ${nodeId} on trip ${tripId}`);
+  return node;
 }
 
-export function seedInventory(tripId, flights) {
+export function seedTrip(tripId, nodes) {
   trips.set(tripId, {
     id: tripId,
-    flights: flights.map((f) => ({ status: 'CONFIRMED', ...f })),
+    nodes: nodes.map((n) => ({ status: 'CONFIRMED', dependsOn: [], ...n })),
   });
   return trips.get(tripId);
 }
 
-// Control-panel trigger: cancel button.
-export function cancelFlight(tripId, flightId) {
-  const flight = requireFlight(tripId, flightId);
-  flight.status = 'CANCELLED';
-  return flight;
+export function getTrip(tripId) {
+  return requireTrip(tripId);
 }
 
-// Control-panel trigger: delay button — shifts projected arrival so
-// detection.js can compare it against the next leg's departure.
+// Control-panel trigger: cancel button.
+export function cancelNode(tripId, nodeId) {
+  const node = requireNode(tripId, nodeId);
+  node.status = 'CANCELLED';
+  return node;
+}
+
+// Control-panel trigger: delay button — only meaningful on a flight leg;
+// shifts projected arrival so detection.js can compare it against the next
+// leg's departure.
 export function delayFlight(tripId, flightId, minutes) {
-  const flight = requireFlight(tripId, flightId);
-  flight.delayMinutes = minutes;
-  flight.projectedArrival = new Date(
-    new Date(flight.scheduledArrival).getTime() + minutes * 60_000
+  const node = requireNode(tripId, flightId);
+  if (node.type !== 'FLIGHT') throw new Error(`Node ${flightId} is not a FLIGHT`);
+  node.delayMinutes = minutes;
+  node.projectedArrival = new Date(
+    new Date(node.scheduledArrival).getTime() + minutes * 60_000
   ).toISOString();
-  return flight;
+  return node;
 }
 
 // Control-panel trigger: fail button — arms a forced failure on the next

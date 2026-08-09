@@ -12,7 +12,12 @@ export async function getAccessToken({ fetchImpl = fetch, now = Date.now } = {})
   }
 
   const { clientId, clientSecret, baseUrl } = config.sabre;
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  // Sabre's token endpoint requires double base64 encoding: encode the id and
+  // secret separately, join with ':', then base64 encode that whole string.
+  // A single-pass encode (id:secret -> base64) gets a 401 invalid_client.
+  const encodedId = Buffer.from(clientId).toString('base64');
+  const encodedSecret = Buffer.from(clientSecret).toString('base64');
+  const credentials = Buffer.from(`${encodedId}:${encodedSecret}`).toString('base64');
 
   const res = await fetchImpl(`${baseUrl}/v2/auth/token`, {
     method: 'POST',
