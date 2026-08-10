@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sI https://github.com)",
+      "Bash(git config *)",
+      "Bash(git --version)",
+      "Read(//c/Program Files/Git/mingw64/etc/ssl/certs/**)"
+    ]
+  }
+}
