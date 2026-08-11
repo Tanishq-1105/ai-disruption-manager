@@ -12,6 +12,12 @@ cp .env.example .env   # set EXPO_PUBLIC_API_BASE_URL to your machine's LAN IP
 npx expo start
 ```
 
+Or from the repo root: `npm run mobile`. Either way, **always run Expo/npm
+commands from inside `mobile/`** (or via that root script) — running `npx
+expo start` or `npm install expo` from the repo root has previously
+installed `expo` into the *backend's* `node_modules` and/or picked up the
+wrong SDK version, breaking the Expo Go connection.
+
 Scan the QR code with the **Expo Go** app on your phone (same Wi-Fi network
 as the machine running the backend). `localhost` in `.env` will not work on
 a physical device — it needs your machine's actual LAN IP (`ipconfig` on
@@ -47,10 +53,15 @@ src/
 App.js                  navigation shell (bottom tabs; History tab is a stack that swaps in Login/Signup when signed out)
 ```
 
-## Known environment note
+## Known environment notes
 
-This machine's Node.js (v20.14.0) is below what Expo SDK 57 / React Native
-0.86 officially require (`>=20.19.4`) — Expo prints a warning on every
-command. In practice Metro still boots and bundles correctly (verified: the
-full app bundle compiles clean, 1020 modules, no errors), but if anything
-odd shows up, upgrading Node is the first thing to try.
+- Pinned to **Expo SDK 54** (not the latest) to match the Expo Go app
+  version available on the test phone's Play Store — SDK 57's Expo Go
+  build hadn't rolled out there yet. If you upgrade Expo Go later, this can
+  move back to the latest SDK via `npx expo install expo@latest && npx expo
+  install --fix`.
+- This machine's Node.js (v20.14.0) is below what recent Expo/React Native
+  versions officially require (`>=20.19.4`) — Expo prints a warning on every
+  command. In practice Metro still boots and bundles correctly (verified:
+  the full app bundle compiles clean, no errors), but if anything odd shows
+  up, upgrading Node is the first thing to try.
