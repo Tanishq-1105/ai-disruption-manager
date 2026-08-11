@@ -1,9 +1,12 @@
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, useAuth } from './src/context/AuthContext.js';
+import { useAppFonts } from './src/theme/fonts.js';
 import SearchScreen from './src/screens/SearchScreen.js';
 import ResultsScreen from './src/screens/ResultsScreen.js';
 import TrackingScreen from './src/screens/TrackingScreen.js';
@@ -57,7 +60,17 @@ function RootTabs() {
   );
 }
 
+SplashScreen.preventAutoHideAsync();
+
 export default function App() {
+  const [fontsLoaded] = useAppFonts();
+
+  useEffect(() => {
+    if (fontsLoaded) SplashScreen.hideAsync();
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) return null;
+
   return (
     <SafeAreaProvider>
       <AuthProvider>

@@ -22,6 +22,13 @@ you don't need yet).
 Open http://localhost:4000 (or whatever `PORT` is set to) for the simulator
 control panel, or hit the API directly.
 
+To run the mobile app, use `npm run mobile` from here (equivalent to `cd
+mobile && npx expo start`) — **do not** run `npx expo start` or `npm install
+expo` from this root folder directly; `expo` is not (and should not be) a
+dependency of this backend, only of `mobile/`. Running Expo commands from
+the wrong directory has caused real breakage before (installs `expo` into
+the backend's `node_modules`, or picks up the wrong SDK version).
+
 ## Control panel
 
 Click **Seed demo trip** to load a fixture trip: an outbound leg, a
