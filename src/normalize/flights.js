@@ -6,7 +6,10 @@ export function normalizeFlightSearchResults(sabreResponse) {
   return itineraries.map(normalizeItinerary);
 }
 
-function normalizeItinerary(itinerary) {
+// InstaFlights can list the same flight/departure more than once (different
+// fare classes) — the index keeps ids unique even when everything else matches,
+// which matters because the mobile results list keys off this id.
+function normalizeItinerary(itinerary, index) {
   const option = itinerary.AirItinerary.OriginDestinationOptions.OriginDestinationOption[0];
   const segments = option.FlightSegment.map(normalizeSegment);
   const first = segments[0];
@@ -14,7 +17,7 @@ function normalizeItinerary(itinerary) {
   const fare = extractFareBreakdown(itinerary)?.PassengerFare?.TotalFare;
 
   return {
-    id: `${first.airline}${first.flightNumber}-${first.departureTime}`,
+    id: `${first.airline}${first.flightNumber}-${first.departureTime}-${index}`,
     airline: first.airline,
     flightNumber: `${first.airline}${first.flightNumber}`,
     origin: first.origin,

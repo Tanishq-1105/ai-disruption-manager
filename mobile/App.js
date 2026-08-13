@@ -88,7 +88,7 @@ const YouStackScreen = makeGatedStackScreen(YouStack, YouScreen, 'You', {
 });
 
 const TAB_ICONS = {
-  Home: ['home', 'home-outline'],
+  HomeTab: ['home', 'home-outline'],
   Trips: ['git-network', 'git-network-outline'],
   Track: ['locate', 'locate-outline'],
   HistoryTab: ['time', 'time-outline'],
@@ -111,7 +111,7 @@ function RootTabs() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeStackScreen} />
+      <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ title: 'Home' }} />
       <Tab.Screen name="Trips" component={TripsStackScreen} />
       <Tab.Screen name="Track" component={TrackingScreen} />
       <Tab.Screen name="HistoryTab" component={HistoryStackScreen} options={{ title: 'History' }} />
