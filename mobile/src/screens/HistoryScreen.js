@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext.js';
 import { getHistory } from '../api/endpoints.js';
+import { colors, spacing, radius, typography } from '../theme/index.js';
+import { Eyebrow, Tag } from '../components/ui/index.js';
 
 export default function HistoryScreen() {
-  const { logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
 
@@ -29,18 +30,16 @@ export default function HistoryScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1a73e8" />
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
+        <Eyebrow>Searches</Eyebrow>
         <Text style={styles.heading}>History</Text>
-        <Pressable onPress={logout}>
-          <Text style={styles.logout}>Log out</Text>
-        </Pressable>
       </View>
 
       <FlatList
@@ -50,15 +49,18 @@ export default function HistoryScreen() {
         ListEmptyComponent={<Text style={styles.emptyText}>No searches yet.</Text>}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.category}>{item.category.toUpperCase()}</Text>
+            <View style={styles.cardHeader}>
+              <Tag label={item.category.toUpperCase()} size="sm" />
+              <Text style={styles.meta}>{new Date(item.createdAt).toLocaleString()}</Text>
+            </View>
             <Text style={styles.query}>{summarizeQuery(item.query)}</Text>
             <Text style={styles.meta}>
-              {item.resultCount} result{item.resultCount === 1 ? '' : 's'} · {new Date(item.createdAt).toLocaleString()}
+              {item.resultCount} result{item.resultCount === 1 ? '' : 's'}
             </Text>
           </View>
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -70,15 +72,21 @@ function summarizeQuery(query) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f4f5f7' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 8 },
-  heading: { fontSize: 22, fontWeight: '700' },
-  logout: { color: '#c0392b', fontWeight: '600' },
-  list: { paddingHorizontal: 16, paddingBottom: 20 },
-  card: { padding: 14, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, elevation: 1 },
-  category: { fontSize: 11, fontWeight: '700', color: '#1a73e8', marginBottom: 4 },
-  query: { fontSize: 14, color: '#222' },
-  meta: { fontSize: 12, color: '#888', marginTop: 4 },
-  emptyText: { textAlign: 'center', color: '#888', marginTop: 40 },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
+  header: { padding: spacing.lg, paddingBottom: spacing.sm },
+  heading: { ...typography.heading, fontSize: 24, color: colors.text, marginTop: 4 },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  card: {
+    padding: spacing.md + 2,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    marginBottom: spacing.sm + 2,
+  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  query: { fontSize: 14, color: colors.text },
+  meta: { fontSize: 12, color: colors.textMuted },
+  emptyText: { textAlign: 'center', color: colors.textMuted, marginTop: 40 },
 });

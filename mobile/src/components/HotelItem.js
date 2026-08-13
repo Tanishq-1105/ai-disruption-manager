@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { colors, radius, spacing, typography } from '../theme/index.js';
 
 export function HotelItem({ item }) {
   return (
@@ -15,9 +16,16 @@ export function HotelItem({ item }) {
 }
 
 const styles = StyleSheet.create({
-  card: { padding: 14, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, elevation: 1 },
+  card: {
+    padding: spacing.md + 2,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    marginBottom: spacing.sm + 2,
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontWeight: '600', fontSize: 15, flexShrink: 1 },
-  price: { fontWeight: '700', fontSize: 14, color: '#1a73e8' },
-  meta: { marginTop: 4, fontSize: 12, color: '#777' },
+  title: { ...typography.headingMedium, fontSize: 15, color: colors.text, flexShrink: 1 },
+  price: { ...typography.headingMedium, fontSize: 14, color: colors.accent700 },
+  meta: { marginTop: 4, fontSize: 12, color: colors.textMuted },
 });

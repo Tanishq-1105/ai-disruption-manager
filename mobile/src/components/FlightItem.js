@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { colors, radius, spacing, typography } from '../theme/index.js';
 
 export function FlightItem({ item }) {
   return (
@@ -24,10 +25,17 @@ function formatTime(iso) {
 }
 
 const styles = StyleSheet.create({
-  card: { padding: 14, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, elevation: 1 },
+  card: {
+    padding: spacing.md + 2,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    marginBottom: spacing.sm + 2,
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontWeight: '600', fontSize: 15 },
-  price: { fontWeight: '700', fontSize: 15, color: '#1a73e8' },
-  route: { marginTop: 4, fontSize: 14, color: '#333' },
-  meta: { marginTop: 4, fontSize: 12, color: '#777' },
+  title: { ...typography.headingMedium, fontSize: 15, color: colors.text },
+  price: { ...typography.headingMedium, fontSize: 15, color: colors.accent700 },
+  route: { marginTop: 4, fontSize: 14, color: colors.textSecondary },
+  meta: { marginTop: 4, fontSize: 12, color: colors.textMuted },
 });

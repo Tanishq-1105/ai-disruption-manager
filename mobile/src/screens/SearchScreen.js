@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { CATEGORIES } from '../config/categories.js';
+import { colors, spacing, radius, typography } from '../theme/index.js';
+import { BlueprintCard, Button, Eyebrow, SegmentedControl } from '../components/ui/index.js';
 
-const CATEGORY_KEYS = Object.keys(CATEGORIES);
+const CATEGORY_OPTIONS = Object.keys(CATEGORIES).map((key) => ({ key, label: CATEGORIES[key].label }));
 
-export default function SearchScreen({ navigation }) {
-  const [category, setCategory] = useState('flights');
+export default function SearchScreen({ navigation, route }) {
+  const [category, setCategory] = useState(route.params?.category || 'flights');
   const [values, setValues] = useState({});
 
   const config = CATEGORIES[category];
@@ -15,59 +19,92 @@ export default function SearchScreen({ navigation }) {
     setValues({});
   }
 
+  function swapOriginDestination() {
+    setValues((v) => ({ ...v, origin: v.destination || '', destination: v.origin || '' }));
+  }
+
   function submit() {
     navigation.navigate('Results', { category, params: values });
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Search</Text>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Eyebrow>Search</Eyebrow>
+        <Text style={styles.heading}>Where to?</Text>
 
-      <View style={styles.segmentRow}>
-        {CATEGORY_KEYS.map((key) => (
-          <Pressable
-            key={key}
-            onPress={() => setCategoryAndReset(key)}
-            style={[styles.segment, category === key && styles.segmentActive]}
-          >
-            <Text style={[styles.segmentText, category === key && styles.segmentTextActive]}>
-              {CATEGORIES[key].label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+        <SegmentedControl options={CATEGORY_OPTIONS} value={category} onChange={setCategoryAndReset} />
 
-      {config.searchFields.map((field) => (
-        <View key={field.key} style={styles.fieldGroup}>
-          <Text style={styles.label}>{field.label}</Text>
-          <TextInput
-            style={styles.input}
-            value={values[field.key] || ''}
-            autoCapitalize={field.autoCapitalize || 'none'}
-            onChangeText={(text) => setValues((v) => ({ ...v, [field.key]: text }))}
-          />
+        <View style={styles.fields}>
+          {config.searchFields.map((field) => {
+            const isSwappable = category === 'flights' && (field.key === 'origin' || field.key === 'destination');
+            return (
+              <View key={field.key} style={styles.fieldGroup}>
+                <Text style={styles.label}>{field.label}</Text>
+                <View style={styles.inputRow}>
+                  <TextInput
+                    style={styles.input}
+                    placeholderTextColor={colors.textMuted}
+                    value={values[field.key] || ''}
+                    autoCapitalize={field.autoCapitalize || 'none'}
+                    onChangeText={(text) => setValues((v) => ({ ...v, [field.key]: text }))}
+                  />
+                  {isSwappable && field.key === 'destination' ? (
+                    <Pressable style={styles.swapButton} onPress={swapOriginDestination} hitSlop={8}>
+                      <Ionicons name="swap-vertical" size={18} color={colors.accent700} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
         </View>
-      ))}
 
-      <Pressable style={styles.submitButton} onPress={submit}>
-        <Text style={styles.submitText}>Search {config.label}</Text>
-      </Pressable>
-    </ScrollView>
+        <BlueprintCard style={styles.notice}>
+          <View style={styles.noticeRow}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.accent700} />
+            <Text style={styles.noticeText}>
+              Auto-repair on this booking — if this trip is disrupted, TripShield finds and books a replacement
+              automatically, within the limits you set in You.
+            </Text>
+          </View>
+        </BlueprintCard>
+
+        <Button label={`Search ${config.label}`} onPress={submit} style={styles.submitButton} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f4f5f7' },
-  content: { padding: 16 },
-  heading: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-  segmentRow: { flexDirection: 'row', backgroundColor: '#e6e8ec', borderRadius: 10, padding: 4, marginBottom: 20 },
-  segment: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  segmentActive: { backgroundColor: '#fff' },
-  segmentText: { color: '#666', fontWeight: '500' },
-  segmentTextActive: { color: '#111' },
-  fieldGroup: { marginBottom: 14 },
-  label: { fontSize: 13, color: '#555', marginBottom: 6 },
-  input: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  submitButton: { backgroundColor: '#1a73e8', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 10 },
-  submitText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  heading: { ...typography.heading, fontSize: 24, color: colors.text, marginTop: 4, marginBottom: spacing.lg },
+  fields: { marginTop: spacing.xl },
+  fieldGroup: { marginBottom: spacing.md + 2 },
+  label: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs + 2 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  input: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    fontSize: 15,
+    color: colors.text,
+  },
+  swapButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.neutral100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notice: { marginTop: spacing.md, backgroundColor: colors.bg },
+  noticeRow: { flexDirection: 'row', gap: spacing.sm + 2, alignItems: 'flex-start' },
+  noticeText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
+  submitButton: { marginTop: spacing.xl },
 });

@@ -1,27 +1,40 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { colors, spacing, typography } from '../theme/index.js';
+import { Button } from '../components/ui/index.js';
 
-export default function AuthLandingScreen({ navigation }) {
+const DEFAULT_COPY = {
+  heading: 'Sign in to continue',
+  subheading: 'Create a free account to keep going.',
+};
+
+// Reused as the auth gate for History, Trips, and You — each stack passes
+// its own heading/subheading via route params instead of three near-duplicate screens.
+export default function AuthLandingScreen({ navigation, route }) {
+  const { heading, subheading } = { ...DEFAULT_COPY, ...(route?.params || {}) };
+
   return (
-    <View style={styles.screen}>
-      <Text style={styles.heading}>Sign in to see your history</Text>
-      <Text style={styles.subheading}>Your past flight, hotel, and cab searches show up here once you're signed in.</Text>
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right', 'bottom']}>
+      <View style={styles.content}>
+        <Text style={styles.heading}>{heading}</Text>
+        <Text style={styles.subheading}>{subheading}</Text>
 
-      <Pressable style={styles.button} onPress={() => navigation.navigate('Login')}>
-        <Text style={styles.buttonText}>Log in</Text>
-      </Pressable>
-      <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => navigation.navigate('Signup')}>
-        <Text style={[styles.buttonText, styles.buttonTextSecondary]}>Sign up</Text>
-      </Pressable>
-    </View>
+        <Button label="Log in" onPress={() => navigation.navigate('Login')} style={styles.button} />
+        <Button
+          label="Sign up"
+          variant="secondary"
+          onPress={() => navigation.navigate('Signup')}
+          style={styles.button}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fff', padding: 24, justifyContent: 'center' },
-  heading: { fontSize: 22, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
-  subheading: { fontSize: 14, color: '#666', marginBottom: 28, textAlign: 'center' },
-  button: { backgroundColor: '#1a73e8', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginBottom: 12 },
-  buttonSecondary: { backgroundColor: '#f4f5f7' },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  buttonTextSecondary: { color: '#1a73e8' },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  content: { flex: 1, padding: spacing.xxl, justifyContent: 'center' },
+  heading: { ...typography.heading, fontSize: 22, color: colors.text, marginBottom: spacing.sm, textAlign: 'center' },
+  subheading: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xxl, textAlign: 'center' },
+  button: { marginBottom: spacing.sm + 4 },
 });
