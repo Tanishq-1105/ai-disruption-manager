@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CATEGORIES } from '../config/categories.js';
 import { colors, spacing, radius, typography } from '../theme/index.js';
 import { BlueprintCard, Button, Eyebrow, SegmentedControl } from '../components/ui/index.js';
+import { DateField } from '../components/DateField.js';
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORIES).map((key) => ({ key, label: CATEGORIES[key].label }));
 
@@ -21,6 +22,15 @@ export default function SearchScreen({ navigation, route }) {
 
   function swapOriginDestination() {
     setValues((v) => ({ ...v, origin: v.destination || '', destination: v.origin || '' }));
+  }
+
+  function setDateValue(field, iso) {
+    setValues((v) => {
+      const next = { ...v, [field.key]: iso };
+      // a later checkIn can strand an earlier checkOut — drop it so minDate stays honest
+      if (field.key === 'checkIn' && next.checkOut && next.checkOut < iso) next.checkOut = '';
+      return next;
+    });
   }
 
   function submit() {
@@ -41,20 +51,28 @@ export default function SearchScreen({ navigation, route }) {
             return (
               <View key={field.key} style={styles.fieldGroup}>
                 <Text style={styles.label}>{field.label}</Text>
-                <View style={styles.inputRow}>
-                  <TextInput
-                    style={styles.input}
-                    placeholderTextColor={colors.textMuted}
+                {field.type === 'date' ? (
+                  <DateField
                     value={values[field.key] || ''}
-                    autoCapitalize={field.autoCapitalize || 'none'}
-                    onChangeText={(text) => setValues((v) => ({ ...v, [field.key]: text }))}
+                    onChange={(iso) => setDateValue(field, iso)}
+                    minDate={field.minDate ? field.minDate(values) : undefined}
                   />
-                  {isSwappable && field.key === 'destination' ? (
-                    <Pressable style={styles.swapButton} onPress={swapOriginDestination} hitSlop={8}>
-                      <Ionicons name="swap-vertical" size={18} color={colors.accent700} />
-                    </Pressable>
-                  ) : null}
-                </View>
+                ) : (
+                  <View style={styles.inputRow}>
+                    <TextInput
+                      style={styles.input}
+                      placeholderTextColor={colors.textMuted}
+                      value={values[field.key] || ''}
+                      autoCapitalize={field.autoCapitalize || 'none'}
+                      onChangeText={(text) => setValues((v) => ({ ...v, [field.key]: text }))}
+                    />
+                    {isSwappable && field.key === 'destination' ? (
+                      <Pressable style={styles.swapButton} onPress={swapOriginDestination} hitSlop={8}>
+                        <Ionicons name="swap-vertical" size={18} color={colors.accent700} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                )}
               </View>
             );
           })}

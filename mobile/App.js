@@ -12,6 +12,8 @@ import { colors, typography } from './src/theme/index.js';
 import HomeScreen from './src/screens/HomeScreen.js';
 import SearchScreen from './src/screens/SearchScreen.js';
 import ResultsScreen from './src/screens/ResultsScreen.js';
+import ItemDetailsScreen from './src/screens/ItemDetailsScreen.js';
+import BookingScreen from './src/screens/BookingScreen.js';
 import TripsScreen from './src/screens/TripsScreen.js';
 import TrackingScreen from './src/screens/TrackingScreen.js';
 import HistoryScreen from './src/screens/HistoryScreen.js';
@@ -36,6 +38,8 @@ function HomeStackScreen() {
       <HomeStack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
       <HomeStack.Screen name="SearchHome" component={SearchScreen} options={{ title: 'Search' }} />
       <HomeStack.Screen name="Results" component={ResultsScreen} options={{ title: 'Results' }} />
+      <HomeStack.Screen name="ItemDetails" component={ItemDetailsScreen} options={{ title: 'Details' }} />
+      <HomeStack.Screen name="Booking" component={BookingScreen} options={{ title: 'Book (demo)' }} />
     </HomeStack.Navigator>
   );
 }

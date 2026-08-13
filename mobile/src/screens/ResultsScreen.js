@@ -6,6 +6,7 @@ import { CATEGORIES } from '../config/categories.js';
 import { colors, spacing, radius } from '../theme/index.js';
 import { Tag } from '../components/ui/index.js';
 import { FilterSheet } from '../components/FilterSheet.js';
+import { ResultCard } from '../components/ResultCard.js';
 
 function defaultFilterValues(filters) {
   const values = {};
@@ -13,7 +14,7 @@ function defaultFilterValues(filters) {
   return values;
 }
 
-export default function ResultsScreen({ route }) {
+export default function ResultsScreen({ route, navigation }) {
   const { category, params } = route.params;
   const config = CATEGORIES[category];
   const sortKeys = Object.keys(config.sorts);
@@ -142,7 +143,7 @@ export default function ResultsScreen({ route }) {
         contentContainerStyle={styles.list}
         data={visible}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <config.ItemComponent item={item} />}
+        renderItem={({ item }) => <ResultCard item={item} category={category} config={config} navigation={navigation} />}
         ListEmptyComponent={<Text style={styles.emptyText}>No results match your filters.</Text>}
       />
 

@@ -2,6 +2,7 @@ import * as endpoints from '../api/endpoints.js';
 import { FlightItem } from '../components/FlightItem.js';
 import { HotelItem } from '../components/HotelItem.js';
 import { CabItem } from '../components/CabItem.js';
+import { todayISO } from '../utils/date.js';
 
 // Fewer stops and a shorter routing leave less to re-coordinate if this
 // flight gets disrupted, so they proxy for how easily the agent could find
@@ -29,7 +30,7 @@ export const CATEGORIES = {
     searchFields: [
       { key: 'origin', label: 'From (e.g. JFK)', autoCapitalize: 'characters' },
       { key: 'destination', label: 'To (e.g. LAX)', autoCapitalize: 'characters' },
-      { key: 'departuredate', label: 'Date (YYYY-MM-DD)' },
+      { key: 'departuredate', label: 'Departure date', type: 'date', minDate: () => todayISO() },
     ],
     fetch: endpoints.searchFlights,
     ItemComponent: FlightItem,
@@ -82,8 +83,8 @@ export const CATEGORIES = {
     label: 'Hotels',
     searchFields: [
       { key: 'destination', label: 'City (e.g. SFO)', autoCapitalize: 'characters' },
-      { key: 'checkIn', label: 'Check-in (YYYY-MM-DD)' },
-      { key: 'checkOut', label: 'Check-out (YYYY-MM-DD)' },
+      { key: 'checkIn', label: 'Check-in', type: 'date', minDate: () => todayISO() },
+      { key: 'checkOut', label: 'Check-out', type: 'date', minDate: (values) => values.checkIn || todayISO() },
     ],
     fetch: endpoints.searchHotels,
     ItemComponent: HotelItem,
