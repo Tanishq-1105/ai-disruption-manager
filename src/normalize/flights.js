@@ -1,9 +1,19 @@
 // Maps Sabre's InstaFlights PricedItineraries into a flat shape the mobile
 // app can filter/sort without knowing anything about Sabre's schema.
 
+import { partitionByPlausibility } from './plausibility.js';
+
 export function normalizeFlightSearchResults(sabreResponse) {
   const itineraries = sabreResponse?.PricedItineraries || [];
   return itineraries.map(normalizeItinerary);
+}
+
+// Same normalization, minus itineraries that could not physically be flown.
+// The CERT cache serves a few of those and they must never reach a member or
+// the agent core — see src/normalize/plausibility.js for what "impossible"
+// means here. Returns the rejects too so callers can log what they dropped.
+export function normalizePlausibleFlightSearchResults(sabreResponse) {
+  return partitionByPlausibility(normalizeFlightSearchResults(sabreResponse));
 }
 
 // InstaFlights can list the same flight/departure more than once (different
@@ -44,6 +54,11 @@ function normalizeSegment(segment) {
     departureTime: segment.DepartureDateTime,
     arrivalTime: segment.ArrivalDateTime,
     durationMinutes: segment.ElapsedTime,
+    // Sabre's times are local wall clock, so the offsets are the only way to
+    // compare them across timezones. Carried through because plausibility and
+    // any future connection maths are wrong without them.
+    departureOffsetHours: segment.DepartureTimeZone?.GMTOffset,
+    arrivalOffsetHours: segment.ArrivalTimeZone?.GMTOffset,
   };
 }
 

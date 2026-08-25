@@ -19,6 +19,7 @@
       </span>
       <button id="seed-demo" class="btn btn-primary">Seed demo trip</button>
       <button id="fail-next" class="btn btn-warning">Force next booking failure</button>
+      <button id="run-recovery" class="btn btn-primary">Run recovery</button>
       <button id="refresh-now" class="btn btn-ghost">Refresh</button>
     </div>
   </header>
@@ -41,6 +42,15 @@
       </div>
       <div id="analysis-events" class="event-list">
         <p class="empty-state">No trip loaded yet.</p>
+      </div>
+    </section>
+    <section class="panel recovery-panel">
+      <div class="panel-header">
+        <h2>Recovery</h2>
+        <span id="recovery-status" class="muted">not run yet</span>
+      </div>
+      <div id="recovery-output" class="recovery-output">
+        <p class="empty-state">Cancel a flight, then click "Run recovery" to search real alternatives, score them, apply policy, and rebook safely.</p>
       </div>
     </section>
   </main>

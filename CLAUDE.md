@@ -21,11 +21,15 @@ It goes beyond apps that only *announce* a disruption — it *acts* in real time
 The system splits into two halves behind a single swappable interface
 (Ports & Adapters / Hexagonal architecture):
 
-- **Search / information (real):** flight and hotel data comes live from the
-  **Sabre APIs**. This is the "looking" half.
-- **Actions (simulated):** the cancellation, seat scarcity, booking, and failures
-  come from a **self-built simulator** we control. This is the "doing" half,
-  because no airline gives sandbox access to reissue real tickets.
+- **Search / information (real):** flight data comes live from **Duffel**
+  (default) or **Sabre** (`SEARCH_PROVIDER=sabre`). This is the "looking" half.
+  Duffel is the default because this Sabre account only has data for one route.
+- **Actions:** the cancellation and injected failures come from a **self-built
+  simulator** we control. Booking now runs against **Duffel's sandbox** by
+  default (`BOOKING_PROVIDER=duffel`), which creates real test orders with real
+  booking references, so the confirm-before-release rule is exercised against a
+  real API rather than only our own code. `BOOKING_PROVIDER=simulator` restores
+  the fully self-contained behaviour.
 
 Both sit behind one provider interface (the "socket"). Going to production =
 swap the simulator adapter for a real ticketing adapter. **The agent core never
@@ -76,7 +80,7 @@ on large/irreversible ones:
 | Backend | Node.js + Express | hosts agent, provider interface, simulator |
 | Agent flow | LangGraph | orchestrates the step sequence only |
 | Decisions | **plain deterministic code** | ALL money/booking/scoring logic — never an LLM |
-| Travel data | **Sabre APIs** | flight search + hotel availability |
+| Travel data | **Duffel** (default), Sabre optional | flight search, seat maps, sandbox booking |
 | Durable store | PostgreSQL | trip + audit trail of every automatic action |
 | Cache | Redis | caches search results only (no seat holds in this build) |
 | Live updates | Server-Sent Events (SSE) | pushes agent progress to the app |
@@ -144,11 +148,11 @@ this build.
 1. Simulator + control panel (cancel/delay/fail buttons). *implemented*
 2. **Detection** (Watcher). *implemented; see `src/agent/detection.js`*
 3. **Impact analysis** (blast radius). *implemented; see `src/agent/impact.js`*
-4. Option search + scoring.
-5. Policy engine.
-6. Safe booking + rollback.
+4. Option search + scoring. *implemented; see `src/agent/options.js`*
+5. Policy engine. *implemented; see `src/agent/policy.js`*
+6. Safe booking + rollback. *implemented; see `src/agent/executor.js`*
 7. App screens + SSE live updates.
-8. Notifications + audit trail.
+8. Notifications + audit trail. *audit trail implemented; message composed, no channel delivers it*
 9. Hardening (circuit breaker fallback) + scale.
 
 Principle: get steps 0–6 working as one loop before adding polish (LangGraph

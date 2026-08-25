@@ -23,7 +23,7 @@ export async function getAccessToken({ fetchImpl = fetch, now = Date.now } = {})
     method: 'POST',
     headers: {
       Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/x-www-form-urlencoded', 
     },
     body: 'grant_type=client_credentials',
   });

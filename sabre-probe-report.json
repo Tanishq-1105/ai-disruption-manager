@@ -1,0 +1,768 @@
+{
+  "generatedAt": "2026-08-25T12:43:45.752Z",
+  "baseUrl": "https://api-crt.cert.havail.sabre.com",
+  "report": [
+    {
+      "part": 3,
+      "id": "flight-status",
+      "name": "Flight Status / FLIFO",
+      "purpose": "Live status for the Watcher poll loop",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v1/flightstatus",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL",
+            "departuredate": "2026-09-24"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v2/flightstatus",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL",
+            "departuredate": "2026-09-24"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v1/lists/utilities/flights/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v1/flifo/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          }
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v1/flightstatus",
+        "query": {
+          "flightnumber": "742",
+          "carrier": "DL",
+          "departuredate": "2026-09-24"
+        },
+        "status": 404,
+        "ms": 294,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "gateway 404, empty body — no route on this account",
+        "bodySample": ""
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v1/flightstatus",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL",
+            "departuredate": "2026-09-24"
+          },
+          "status": 404,
+          "ms": 294,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v2/flightstatus",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL",
+            "departuredate": "2026-09-24"
+          },
+          "status": 404,
+          "ms": 291,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v1/lists/utilities/flights/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          },
+          "status": 404,
+          "ms": 381,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v1/lists/utilities/flights/status",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:32Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-8k2f4-default\",\"message\":\"No service exists for: /api/v1/lists/utilities/flights/status\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v1/flifo/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          },
+          "status": 404,
+          "ms": 335,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/status",
+          "query": {
+            "flightnumber": "742",
+            "carrier": "DL"
+          },
+          "status": 404,
+          "ms": 317,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v1/shop/flights/status",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:33Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for: /api/v1/shop/flights/status\"}"
+        }
+      ]
+    },
+    {
+      "part": 3,
+      "id": "flight-schedules",
+      "name": "Flight Schedules",
+      "purpose": "Scheduled times to compare against actuals",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v1/lists/supported/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v2/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v1/schedules/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          }
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v1/lists/supported/shop/flights/schedules",
+        "query": {
+          "origin": "JFK",
+          "destination": "LAX"
+        },
+        "status": 404,
+        "ms": 352,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "route exists but product not on this account: No service exists for: /api/v1/lists/supported/shop/flights/schedules",
+        "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:34Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-8k2f4-default\",\"message\":\"No service exists for: /api/v1/lists/supported/shop/flights/schedules\"}"
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v1/lists/supported/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX"
+          },
+          "status": 404,
+          "ms": 352,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v1/lists/supported/shop/flights/schedules",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:34Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-8k2f4-default\",\"message\":\"No service exists for: /api/v1/lists/supported/shop/flights/schedules\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          },
+          "status": 404,
+          "ms": 346,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v1/shop/flights/schedules",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:34Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for: /api/v1/shop/flights/schedules\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v2/shop/flights/schedules",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          },
+          "status": 404,
+          "ms": 341,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v2/shop/flights/schedules",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:35Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-8k2f4-default\",\"message\":\"No service exists for: /api/v2/shop/flights/schedules\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v1/schedules/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24"
+          },
+          "status": 404,
+          "ms": 287,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    },
+    {
+      "part": 2,
+      "id": "create-pnr",
+      "name": "Create Passenger Name Record",
+      "purpose": "Real booking (expected PCC-gated)",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v2.4.0/passenger/records",
+          "query": {}
+        },
+        {
+          "method": "GET",
+          "path": "/v2.5.0/passenger/records",
+          "query": {}
+        },
+        {
+          "method": "GET",
+          "path": "/v1/passenger/records",
+          "query": {}
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v2.4.0/passenger/records",
+        "query": {},
+        "status": 404,
+        "ms": 308,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "gateway 404, empty body — no route on this account",
+        "bodySample": ""
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v2.4.0/passenger/records",
+          "query": {},
+          "status": 404,
+          "ms": 308,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v2.5.0/passenger/records",
+          "query": {},
+          "status": 404,
+          "ms": 328,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v1/passenger/records",
+          "query": {},
+          "status": 404,
+          "ms": 288,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    },
+    {
+      "part": 2,
+      "id": "get-booking",
+      "name": "Get Booking",
+      "purpose": "Read an existing PNR",
+      "expect": [
+        "confirmationId"
+      ],
+      "variants": [
+        {
+          "method": "POST",
+          "path": "/v1/trip/orders/getBooking",
+          "body": {
+            "confirmationId": "ZZZZZZ"
+          }
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "POST",
+        "path": "/v1/trip/orders/getBooking",
+        "query": {},
+        "status": 200,
+        "ms": 574,
+        "verdict": "NOT_ENTITLED",
+        "detail": "HTTP 200 carrying UNAUTHORIZED UNAUTHORIZED_ACCESS: Booking cannot be retrieved due to authorization issues in the security systems. Please verify the used credentials with your account manager.",
+        "bodySample": "{\"request\":{\"confirmationId\":\"ZZZZZZ\"},\"errors\":[{\"category\":\"UNAUTHORIZED\",\"type\":\"UNAUTHORIZED_ACCESS\",\"description\":\"Booking cannot be retrieved due to authorization issues in the security systems. Please verify the used credentials with your account manager.\"}]}"
+      },
+      "attempts": [
+        {
+          "method": "POST",
+          "path": "/v1/trip/orders/getBooking",
+          "query": {},
+          "status": 200,
+          "ms": 574,
+          "verdict": "NOT_ENTITLED",
+          "detail": "HTTP 200 carrying UNAUTHORIZED UNAUTHORIZED_ACCESS: Booking cannot be retrieved due to authorization issues in the security systems. Please verify the used credentials with your account manager.",
+          "bodySample": "{\"request\":{\"confirmationId\":\"ZZZZZZ\"},\"errors\":[{\"category\":\"UNAUTHORIZED\",\"type\":\"UNAUTHORIZED_ACCESS\",\"description\":\"Booking cannot be retrieved due to authorization issues in the security systems. Please verify the used credentials with your account manager.\"}]}"
+        }
+      ]
+    },
+    {
+      "part": 2,
+      "id": "seat-map",
+      "name": "Enhanced Seat Map",
+      "purpose": "The seat matrix for part 1 (expected PCC-gated)",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v4.3.0/book/seatmaps",
+          "query": {}
+        },
+        {
+          "method": "GET",
+          "path": "/v1/book/seatmaps",
+          "query": {}
+        },
+        {
+          "method": "GET",
+          "path": "/v5/book/seatmaps",
+          "query": {}
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v4.3.0/book/seatmaps",
+        "query": {},
+        "status": 404,
+        "ms": 289,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "gateway 404, empty body — no route on this account",
+        "bodySample": ""
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v4.3.0/book/seatmaps",
+          "query": {},
+          "status": 404,
+          "ms": 289,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v1/book/seatmaps",
+          "query": {},
+          "status": 404,
+          "ms": 386,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v5/book/seatmaps",
+          "query": {},
+          "status": 404,
+          "ms": 306,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    },
+    {
+      "part": 4,
+      "id": "instaflights-v2",
+      "name": "InstaFlights Search (v2)",
+      "purpose": "Newer GET search returning the same PricedItineraries shape",
+      "verified": true,
+      "expect": [
+        "PricedItineraries"
+      ],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v2/shop/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "limit": 2
+          }
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v2/shop/flights",
+        "query": {
+          "origin": "JFK",
+          "destination": "LAX",
+          "departuredate": "2026-09-24",
+          "limit": 2
+        },
+        "status": 200,
+        "ms": 504,
+        "verdict": "AVAILABLE",
+        "detail": "HTTP 200",
+        "bodySample": "{\"PricedItineraries\":[{\"AirItinerary\":{\"OriginDestinationOptions\":{\"OriginDestinationOption\":[{\"FlightSegment\":[{\"DepartureAirport\":{\"LocationCode\":\"JFK\"},\"ArrivalAirport\":{\"LocationCode\":\"LAX\"},\"MarketingAirline\":{\"Code\":\"B6\"},\"ArrivalTimeZone\":{\"GMTOffset\":-7},\"TPA_Extensions\":{\"eTicket\":{\"Ind\":true}},\"StopQuantity\":1,\"ElapsedTime\":540,\"StopAirports\":{\"StopAirport\":{\"Equipment\":\"32Q\",\"DepartureD"
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v2/shop/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "limit": 2
+          },
+          "status": 200,
+          "ms": 504,
+          "verdict": "AVAILABLE",
+          "detail": "HTTP 200",
+          "bodySample": "{\"PricedItineraries\":[{\"AirItinerary\":{\"OriginDestinationOptions\":{\"OriginDestinationOption\":[{\"FlightSegment\":[{\"DepartureAirport\":{\"LocationCode\":\"JFK\"},\"ArrivalAirport\":{\"LocationCode\":\"LAX\"},\"MarketingAirline\":{\"Code\":\"B6\"},\"ArrivalTimeZone\":{\"GMTOffset\":-7},\"TPA_Extensions\":{\"eTicket\":{\"Ind\":true}},\"StopQuantity\":1,\"ElapsedTime\":540,\"StopAirports\":{\"StopAirport\":{\"Equipment\":\"32Q\",\"DepartureD"
+        }
+      ]
+    },
+    {
+      "part": 4,
+      "id": "bargain-finder-max",
+      "name": "Bargain Finder Max",
+      "purpose": "Best-priced alternatives for rebooking",
+      "expect": [
+        "PricedItineraries"
+      ],
+      "variants": [
+        {
+          "method": "POST",
+          "path": "/v2/shop/flights",
+          "body": {
+            "OTA_AirLowFareSearchRQ": {
+              "Version": "2",
+              "POS": {
+                "Source": [
+                  {
+                    "RequestorID": {
+                      "Type": "1",
+                      "ID": "1",
+                      "CompanyName": {
+                        "Code": "TN"
+                      }
+                    }
+                  }
+                ]
+              },
+              "OriginDestinationInformation": [
+                {
+                  "RPH": "1",
+                  "DepartureDateTime": "2026-09-24T11:00:00",
+                  "OriginLocation": {
+                    "LocationCode": "JFK"
+                  },
+                  "DestinationLocation": {
+                    "LocationCode": "LAX"
+                  }
+                }
+              ],
+              "TravelPreferences": {
+                "TPA_Extensions": {
+                  "NumTrips": {
+                    "Number": 2
+                  }
+                }
+              },
+              "TravelerInfoSummary": {
+                "AirTravelerAvail": [
+                  {
+                    "PassengerTypeQuantity": [
+                      {
+                        "Code": "ADT",
+                        "Quantity": 1
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/v4/shop/flights",
+          "body": {}
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "POST",
+        "path": "/v2/shop/flights",
+        "query": {},
+        "status": 404,
+        "ms": 316,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "route exists but product not on this account: No service exists for:/api/v2/shop/flights",
+        "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:43Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for:/api/v2/shop/flights\"}"
+      },
+      "attempts": [
+        {
+          "method": "POST",
+          "path": "/v2/shop/flights",
+          "query": {},
+          "status": 404,
+          "ms": 316,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for:/api/v2/shop/flights",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:43Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for:/api/v2/shop/flights\"}"
+        },
+        {
+          "method": "POST",
+          "path": "/v4/shop/flights",
+          "query": {},
+          "status": 404,
+          "ms": 308,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    },
+    {
+      "part": 4,
+      "id": "alternate-date",
+      "name": "Alternate Date Search",
+      "purpose": "Nearby-date alternatives when same-day fails",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v3/shop/altdates/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "returndate": "2026-09-27"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/v2/shop/altdates/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "returndate": "2026-09-27"
+          }
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v3/shop/altdates/flights",
+        "query": {
+          "origin": "JFK",
+          "destination": "LAX",
+          "departuredate": "2026-09-24",
+          "returndate": "2026-09-27"
+        },
+        "status": 404,
+        "ms": 307,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "gateway 404, empty body — no route on this account",
+        "bodySample": ""
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v3/shop/altdates/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "returndate": "2026-09-27"
+          },
+          "status": 404,
+          "ms": 307,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        },
+        {
+          "method": "GET",
+          "path": "/v2/shop/altdates/flights",
+          "query": {
+            "origin": "JFK",
+            "destination": "LAX",
+            "departuredate": "2026-09-24",
+            "returndate": "2026-09-27"
+          },
+          "status": 404,
+          "ms": 301,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    },
+    {
+      "part": 4,
+      "id": "revalidate",
+      "name": "Revalidate Itinerary",
+      "purpose": "Confirm a candidate is still sellable before rebooking",
+      "existenceOnly": true,
+      "expect": [],
+      "variants": [
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/revalidate",
+          "query": {}
+        },
+        {
+          "method": "GET",
+          "path": "/v3.0.0/shop/flights/revalidate",
+          "query": {}
+        }
+      ],
+      "context": {
+        "origin": "JFK",
+        "destination": "LAX",
+        "departuredate": "2026-09-24",
+        "returndate": "2026-09-27"
+      },
+      "best": {
+        "method": "GET",
+        "path": "/v1/shop/flights/revalidate",
+        "query": {},
+        "status": 404,
+        "ms": 324,
+        "verdict": "NOT_PROVISIONED",
+        "detail": "route exists but product not on this account: No service exists for: /api/v1/shop/flights/revalidate",
+        "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:46Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for: /api/v1/shop/flights/revalidate\"}"
+      },
+      "attempts": [
+        {
+          "method": "GET",
+          "path": "/v1/shop/flights/revalidate",
+          "query": {},
+          "status": 404,
+          "ms": 324,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "route exists but product not on this account: No service exists for: /api/v1/shop/flights/revalidate",
+          "bodySample": "{\"status\":\"Complete\",\"reportingSystem\":\"raf\",\"timeStamp\":\"2026-08-25T12:43:46Z\",\"type\":\"Application\",\"errorCode\":\"WARN.RAF.APPLICATION\",\"instance\":\"raf-raf-green-86bf999677-5cdmd-default\",\"message\":\"No service exists for: /api/v1/shop/flights/revalidate\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v3.0.0/shop/flights/revalidate",
+          "query": {},
+          "status": 404,
+          "ms": 292,
+          "verdict": "NOT_PROVISIONED",
+          "detail": "gateway 404, empty body — no route on this account",
+          "bodySample": ""
+        }
+      ]
+    }
+  ]
+}

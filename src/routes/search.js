@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { provider } from '../providers/index.js';
-import { normalizeFlightSearchResults } from '../normalize/flights.js';
+import * as flightSearch from '../providers/search.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 import * as history from '../store/history.js';
 
@@ -24,10 +24,19 @@ async function logHistory(req, category, results) {
 router.get('/flights', async (req, res, next) => {
   try {
     const { origin, destination, departuredate } = req.query;
-    const raw = await provider.searchFlights({ origin, destination, departuredate });
-    const results = normalizeFlightSearchResults(raw);
+    // One entry point for both providers: already normalized, already filtered
+    // of itineraries that could not physically be flown.
+    const { source, results, rejected } = await flightSearch.searchFlights({
+      origin, destination, departuredate,
+    });
+    if (rejected.length > 0) {
+      console.warn(
+        `[search/flights] dropped ${rejected.length} implausible itinerary(ies) for ` +
+        `${origin}-${destination} ${departuredate}: ${rejected[0].issues[0]}`,
+      );
+    }
     await logHistory(req, 'flights', results);
-    res.json({ source: 'sabre', query: req.query, results });
+    res.json({ source, query: req.query, results, filtered: rejected.length });
   } catch (err) {
     next(err);
   }

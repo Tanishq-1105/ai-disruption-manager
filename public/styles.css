@@ -379,3 +379,100 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ---------- recovery panel ---------- */
+.recovery-panel { grid-column: 1 / -1; }
+
+.recovery-output { display: flex; flex-direction: column; gap: 14px; }
+
+.recovery-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border, #2a2f3a);
+}
+.verdict-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+.verdict-ACT, .verdict-RECOVERED { background: rgba(46, 160, 108, .18); color: #4ecf9a; }
+.verdict-SPLIT, .verdict-RECOVERED_NEEDS_ATTENTION { background: rgba(214, 158, 46, .18); color: #e3b34e; }
+.verdict-ESCALATE, .verdict-EXHAUSTED, .verdict-NOTHING_AUTHORISED { background: rgba(214, 92, 78, .18); color: #ef8a7c; }
+
+.recovery-section h3 {
+  font-size: 12px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  opacity: .65;
+  margin-bottom: 8px;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+.option-row + .option-row { margin-top: 4px; }
+.option-row.is-chosen { background: rgba(46, 160, 108, .1); }
+.option-score { font-variant-numeric: tabular-nums; font-weight: 700; }
+.option-why { opacity: .7; font-size: 12px; }
+
+.audit-row {
+  display: grid;
+  grid-template-columns: 130px 150px 1fr;
+  gap: 10px;
+  font-size: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .05);
+}
+.audit-row:last-child { border-bottom: none; }
+.audit-action { font-weight: 600; }
+.audit-outcome { font-variant-numeric: tabular-nums; }
+.outcome-ok { color: #4ecf9a; }
+.outcome-bad { color: #ef8a7c; }
+.outcome-warn { color: #e3b34e; }
+
+.attempt-row { font-size: 12.5px; padding: 3px 0; }
+.retained-flag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(46, 160, 108, .16);
+  color: #4ecf9a;
+  margin-left: 6px;
+}
+
+/* ---------- member message ---------- */
+.member-message {
+  border-left: 3px solid #4ecf9a;
+  border-radius: 5px;
+  padding: 12px 14px;
+  background: rgba(78, 207, 154, .07);
+}
+.member-message.severity-REBOOKED_WITH_QUESTION {
+  border-left-color: #e3b34e;
+  background: rgba(227, 179, 78, .07);
+}
+.member-message.severity-ACTION_REQUIRED {
+  border-left-color: #ef8a7c;
+  background: rgba(239, 138, 124, .07);
+}
+.message-label {
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  opacity: .55;
+  margin-bottom: 6px;
+}
+.message-headline { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.message-body { font-size: 13.5px; line-height: 1.55; opacity: .88; }

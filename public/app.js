@@ -11,6 +11,9 @@ const els = {
   analysisEvents: document.getElementById('analysis-events'),
   rawState: document.getElementById('raw-state'),
   toast: document.getElementById('toast'),
+  runRecovery: document.getElementById('run-recovery'),
+  recoveryStatus: document.getElementById('recovery-status'),
+  recoveryOutput: document.getElementById('recovery-output'),
 };
 
 let currentTripId = null;
@@ -243,7 +246,124 @@ async function delayFlight(nodeId, minutes) {
   }
 }
 
+function outcomeClass(outcome) {
+  if (/BOOKED|RELEASED|APPLIED/.test(outcome)) return 'outcome-ok';
+  if (/FAILED|NOT_AUTHORISED|NOT_CONFIRMED/.test(outcome)) return 'outcome-bad';
+  return 'outcome-warn';
+}
+
+function renderRecovery(result) {
+  if (!result.recoveries.length) {
+    els.recoveryOutput.innerHTML = '<p class="empty-state">No disruption detected. Cancel a flight first.</p>';
+    return;
+  }
+
+  els.recoveryOutput.innerHTML = result.recoveries
+    .map((rec) => {
+      if (rec.skipped) {
+        return `<p class="empty-state">${rec.event.type}: ${rec.skipped}</p>`;
+      }
+
+      const exec = rec.execution;
+      const chosenId = rec.ranked.find((o) => exec.summary.includes(o.flightNumber))?.optionId;
+
+      // The ranked list is the agent showing its work: what it considered, the
+      // score it gave, and every factor behind that score.
+      const options = rec.ranked
+        .map((o) => {
+          const why = o.breakdown
+            .filter((b) => b.points !== 0)
+            .map((b) => `${b.points > 0 ? '+' : ''}${b.points} ${b.factor}`)
+            .join(' · ') || 'identical to the original';
+          return `<div class="option-row ${o.optionId === chosenId ? 'is-chosen' : ''}">
+            <span class="option-score">${o.score}</span>
+            <span>${o.flightNumber} &nbsp;<span class="muted">${o.departureTime.slice(11, 16)} &rarr; ${o.arrivalTime.slice(11, 16)} · ${o.stops} stop</span>
+              <div class="option-why">${why}</div></span>
+            <span>${o.price.amount} ${o.price.currency}</span>
+          </div>`;
+        })
+        .join('');
+
+      const attempts = exec.attempts
+        .map((a) => `<div class="attempt-row">Attempt ${a.attempt}: <span class="${outcomeClass(a.outcome)}">${a.outcome}</span>${
+          a.detail ? ` <span class="muted">${a.detail}</span>` : ''
+        }</div>`)
+        .join('');
+
+      const escalations = rec.decision.escalations
+        .map((e) => `<div class="attempt-row"><span class="outcome-warn">${e.rule}</span> <span class="muted">${e.reason}</span></div>`)
+        .join('');
+
+      // The single member-facing message — the product's actual promise, so it
+      // leads the panel rather than being buried under the machinery.
+      const msg = rec.message
+        ? `<div class="member-message severity-${rec.message.severity}">
+             <div class="message-label">Message to member</div>
+             <div class="message-headline">${rec.message.headline}</div>
+             <div class="message-body">${rec.message.body}</div>
+           </div>`
+        : '';
+
+      return `
+        ${msg}
+        <div class="recovery-verdict">
+          <span class="verdict-badge verdict-${rec.decision.decision}">${rec.decision.decision}</span>
+          <span class="verdict-badge verdict-${exec.status}">${exec.status.replace(/_/g, ' ')}</span>
+          <span class="muted">${exec.summary}</span>
+        </div>
+
+        <div class="recovery-section">
+          <h3>Considered ${rec.candidateCount} real alternatives${rec.rejectedCount ? ` · dropped ${rec.rejectedCount} implausible` : ''}</h3>
+          ${options}
+        </div>
+
+        <div class="recovery-section">
+          <h3>Booking attempts</h3>
+          ${attempts || '<div class="attempt-row muted">none</div>'}
+        </div>
+
+        ${escalations ? `<div class="recovery-section"><h3>Escalated to the member</h3>${escalations}</div>` : ''}
+      `;
+    })
+    .join('');
+
+  // The audit trail is the product's accountability claim, so it is shown, not
+  // hidden behind the raw-state details element.
+  const audit = result.audit
+    .map((a) => `<div class="audit-row">
+        <span class="audit-action">${a.action}</span>
+        <span class="audit-outcome ${outcomeClass(a.outcome)}">${a.outcome}</span>
+        <span class="muted">${a.authorisedBy || ''}${a.detail ? ` — ${a.detail}` : ''}${
+          a.oldTicketRetained ? '<span class="retained-flag">old ticket retained</span>' : ''
+        }</span>
+      </div>`)
+    .join('');
+
+  els.recoveryOutput.innerHTML += `<div class="recovery-section"><h3>Audit trail</h3>${audit}</div>`;
+}
+
+async function runRecovery() {
+  if (!currentTripId) {
+    showToast('Seed a trip first.');
+    return;
+  }
+  els.runRecovery.disabled = true;
+  els.recoveryStatus.textContent = 'searching real alternatives…';
+  try {
+    const result = await api(`/simulator/trips/${currentTripId}/recover`, { method: 'POST' });
+    renderRecovery(result);
+    els.recoveryStatus.textContent = result.summary || 'done';
+    await refresh();
+  } catch (err) {
+    els.recoveryStatus.textContent = err.message;
+    setStatus('error', err.message);
+  } finally {
+    els.runRecovery.disabled = false;
+  }
+}
+
 els.seedDemo.addEventListener('click', seedDemo);
+els.runRecovery.addEventListener('click', runRecovery);
 els.failNext.addEventListener('click', forceFailNext);
 els.refreshNow.addEventListener('click', refresh);
 

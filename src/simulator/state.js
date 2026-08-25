@@ -26,10 +26,39 @@ function requireNode(tripId, nodeId) {
 }
 
 export function seedTrip(tripId, nodes) {
+  // Seeding is a fresh start for this trip, so clear any bookings and
+  // idempotency keys it left behind. Without this a second demo run reuses the
+  // first run's keys, bookFlight short-circuits to the cached booking, and the
+  // armed failure never fires — correct idempotency, wrong demo semantics.
+  for (const [bookingId, booking] of bookings) {
+    if (booking.tripId !== tripId) continue;
+    bookings.delete(bookingId);
+    for (const [key, mappedId] of idempotencyResults) {
+      if (mappedId === bookingId) idempotencyResults.delete(key);
+    }
+  }
+
   trips.set(tripId, {
     id: tripId,
     nodes: nodes.map((n) => ({ status: 'CONFIRMED', dependsOn: [], ...n })),
   });
+
+  // A node that declares a bookingId already has a ticket in the real world,
+  // so register it here too. Without this the executor has nothing to release
+  // and the "confirm new before releasing old" ordering cannot be demonstrated.
+  for (const node of trips.get(tripId).nodes) {
+    if (!node.bookingId || bookings.has(node.bookingId)) continue;
+    bookings.set(node.bookingId, {
+      id: node.bookingId,
+      tripId,
+      nodeId: node.id,
+      option: { flightNumber: node.id, origin: node.origin, destination: node.destination, price: node.price },
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString(),
+      preExisting: true,
+    });
+  }
+
   return trips.get(tripId);
 }
 
@@ -86,6 +115,16 @@ export function bookFlight({ tripId, option, idempotencyKey }) {
   bookings.set(booking.id, booking);
   idempotencyResults.set(idempotencyKey, booking.id);
   return booking;
+}
+
+// Applies a downstream adjustment the policy engine authorised — shifting a
+// hotel, retiming a car. Simulated like every other action: real hotel and
+// ground APIs are not available behind this account.
+export function adjustNode({ tripId, nodeId, action }) {
+  const node = requireNode(tripId, nodeId);
+  node.status = 'ADJUSTED';
+  node.adjustment = { action, at: new Date().toISOString() };
+  return node;
 }
 
 export function cancelBooking(bookingId) {

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { config } from './config.js';
+import { activeSearchProvider, providerMismatch } from './providers/search.js';
 import healthRouter from './routes/health.js';
 import searchRouter from './routes/search.js';
 import simulatorRouter from './routes/simulator.js';
@@ -55,4 +56,10 @@ app.use((err, req, res, next) => {
 
 app.listen(config.port, () => {
   console.log(`Travel-Disruption Concierge backend listening on :${config.port}`);
+  console.log(
+    `providers  search=${activeSearchProvider()} booking=${config.providers.booking} status=${config.providers.status}`,
+  );
+  // Fail loudly at startup rather than confusingly at the moment of booking.
+  const mismatch = providerMismatch();
+  if (mismatch) console.warn(`WARNING: ${mismatch}`);
 });

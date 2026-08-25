@@ -55,3 +55,48 @@ test('forceNextBookingFailure fails exactly one booking attempt, then clears', (
   const booking = simulator.bookFlight({ tripId: 't1', option: {}, idempotencyKey: 'key-3' });
   assert.equal(booking.status, 'CONFIRMED');
 });
+
+test('re-seeding a trip clears its bookings and idempotency keys', () => {
+  simulator._resetForTests();
+  simulator.seedTrip('t1', [{ id: 'f1', type: 'FLIGHT' }]);
+  const first = simulator.bookFlight({ tripId: 't1', option: { id: 'o1' }, idempotencyKey: 'k1' });
+
+  // Same key inside one run must return the same booking — that is idempotency.
+  assert.equal(
+    simulator.bookFlight({ tripId: 't1', option: { id: 'o1' }, idempotencyKey: 'k1' }).id,
+    first.id,
+  );
+
+  // But re-seeding is a fresh start, so the key is released.
+  simulator.seedTrip('t1', [{ id: 'f1', type: 'FLIGHT' }]);
+  const second = simulator.bookFlight({ tripId: 't1', option: { id: 'o1' }, idempotencyKey: 'k1' });
+  assert.notEqual(second.id, first.id);
+});
+
+test('re-seeding one trip leaves another trip untouched', () => {
+  simulator._resetForTests();
+  simulator.seedTrip('keep', [{ id: 'f', type: 'FLIGHT' }]);
+  const kept = simulator.bookFlight({ tripId: 'keep', option: { id: 'o' }, idempotencyKey: 'kk' });
+  simulator.seedTrip('other', [{ id: 'f', type: 'FLIGHT' }]);
+  assert.equal(
+    simulator.bookFlight({ tripId: 'keep', option: { id: 'o' }, idempotencyKey: 'kk' }).id,
+    kept.id,
+  );
+});
+
+test('a node declaring a bookingId gets a pre-existing confirmed booking', () => {
+  simulator._resetForTests();
+  simulator.seedTrip('t2', [{ id: 'f1', type: 'FLIGHT', bookingId: 'pre-1' }]);
+  const booking = simulator.getState().bookings.find((b) => b.id === 'pre-1');
+  assert.ok(booking, 'the executor needs a real old ticket to release');
+  assert.equal(booking.status, 'CONFIRMED');
+  assert.equal(booking.preExisting, true);
+});
+
+test('adjustNode marks a dependent node as adjusted', () => {
+  simulator._resetForTests();
+  simulator.seedTrip('t3', [{ id: 'hotel', type: 'HOTEL' }]);
+  const node = simulator.adjustNode({ tripId: 't3', nodeId: 'hotel', action: 'SHIFT_HOTEL' });
+  assert.equal(node.status, 'ADJUSTED');
+  assert.equal(node.adjustment.action, 'SHIFT_HOTEL');
+});
