@@ -30,18 +30,18 @@ function headers({ idempotencyKey } = {}) {
     'Duffel-Version': API_VERSION,
     Accept: 'application/json',
     'Content-Type': 'application/json',
-    // Duffel deduplicates on this header, which lines up exactly with the
-    // executor's per-attempt key: a retry returns the original order rather
-    // than buying a second seat.
+    // Also enforce idempotency locally: this header alone does not make
+    // repeated order creation return the original order.
     ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
   };
 }
 
-async function request(path, { method = 'GET', body, idempotencyKey, fetchImpl = fetch } = {}) {
+async function request(path, { method = 'GET', body, idempotencyKey, signal, fetchImpl = fetch } = {}) {
   const res = await fetchImpl(`${config.duffel.baseUrl}${path}`, {
     method,
     headers: headers({ idempotencyKey }),
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   const raw = await res.text();
@@ -93,7 +93,7 @@ export async function getSeatMap(offerId, opts) {
   }
 }
 
-export function createOrder({ offerId, amount, currency, passengerId, passenger, idempotencyKey }, opts) {
+export function createOrder({ offerId, amount, currency, passengerId, passenger, idempotencyKey, metadata }, opts) {
   return request('/air/orders', {
     method: 'POST',
     idempotencyKey,
@@ -104,6 +104,7 @@ export function createOrder({ offerId, amount, currency, passengerId, passenger,
         // Test-mode balance payment: no card, no real money.
         payments: [{ type: 'balance', amount, currency }],
         passengers: [{ id: passengerId, ...passenger }],
+        ...(metadata ? { metadata } : {}),
       },
     },
     ...opts,
@@ -112,6 +113,14 @@ export function createOrder({ offerId, amount, currency, passengerId, passenger,
 
 export function getOrder(orderId, opts) {
   return request(`/air/orders/${orderId}`, opts);
+}
+
+export function listOrdersForOffer(offerId, opts) {
+  return request(`/air/orders?offer_id=${encodeURIComponent(offerId)}&limit=100`, opts);
+}
+
+export function listAirlineChanges(orderId, opts) {
+  return request(`/air/airline_initiated_changes?order_id=${encodeURIComponent(orderId)}&limit=100`, opts);
 }
 
 /**

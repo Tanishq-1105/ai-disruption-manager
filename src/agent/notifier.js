@@ -46,6 +46,16 @@ export function composeMemberMessage(recovery, { memberName = null } = {}) {
   // flight they are not on — the exact drift this module exists to prevent.
   const chosen = execution?.option ?? ranked[0];
 
+  if (status === STATUS.REVIEW_REQUIRED) {
+    return {
+      severity: 'ACTION_REQUIRED', headline: 'Your replacement booking needs checking',
+      body: [opens('your original ticket has not been released.'),
+        'A replacement order needs independent verification. We have paused further purchases and left your hotel and ride unchanged.',
+        execution.detail, 'Check this booking before choosing another flight.'].filter(Boolean).join(' '),
+      actions: ['Check booking status'], escalations: [execution.detail ?? 'replacement booking needs verification'],
+    };
+  }
+
   // --- nothing was recovered -------------------------------------------
   if (status === STATUS.EXHAUSTED || status === STATUS.NOTHING_AUTHORISED) {
     const reasons = (decision?.escalations ?? []).map((e) => e.reason).filter(Boolean);
@@ -77,6 +87,10 @@ export function composeMemberMessage(recovery, { memberName = null } = {}) {
   const escalations = (decision?.escalations ?? [])
     .map((e) => e.reason)
     .filter(Boolean);
+  for (const dependent of dependents.filter(item => ['FAILED', 'UNSUPPORTED'].includes(item.outcome))) {
+    escalations.push(dependent.action === 'SHIFT_HOTEL'
+      ? 'the hotel change could not be completed' : 'the ride change could not be completed');
+  }
 
   const sentences = [
     opens('your flight was cancelled overnight and we have already rebooked you.'),
@@ -102,7 +116,7 @@ export function composeMemberMessage(recovery, { memberName = null } = {}) {
     severity: escalations.length || status === STATUS.RECOVERED_NEEDS_ATTENTION
       ? 'REBOOKED_WITH_QUESTION'
       : 'REBOOKED',
-    headline: decision?.decision === DECISION.SPLIT
+    headline: decision?.decision === DECISION.SPLIT || escalations.length
       ? 'Rebooked — one thing needs you'
       : 'You are already rebooked',
     body: sentences.join(' '),

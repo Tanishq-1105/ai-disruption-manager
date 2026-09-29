@@ -62,11 +62,11 @@ export default function HomeScreen({ navigation }) {
         <BlueprintCard accent style={styles.protectionCard}>
           <View style={styles.protectionHeader}>
             <Ionicons name="shield-checkmark" size={20} color={colors.accent700} />
-            <Text style={styles.protectionTitle}>Book here and it's watched</Text>
+            <Text style={styles.protectionTitle}>Your flights, saved together</Text>
           </View>
           <Text style={styles.protectionBody}>
-            Every flight you book through TripShield is watched for cancellations and missed connections. If
-            something breaks, the agent finds a replacement and rebooks it before you have to think about it.
+            Confirm a Duffel sandbox flight and it is added to Protected Trips automatically.
+            Test bookings stay in your account. Live disruption monitoring is not enabled yet.
           </Text>
         </BlueprintCard>
 
@@ -92,14 +92,14 @@ export default function HomeScreen({ navigation }) {
           <BlueprintCard padded={false} style={styles.listCard}>
             <ListRow
               icon={<Ionicons name="git-network-outline" size={18} color={colors.textSecondary} />}
-              title="Trips"
-              subtitle="See what TripShield is protecting"
+              title="Protected trips"
+              subtitle="View your saved sandbox bookings"
               onPress={() => navigation.getParent()?.navigate('Trips')}
             />
             <ListRow
               icon={<Ionicons name="locate-outline" size={18} color={colors.textSecondary} />}
-              title="Track a flight"
-              subtitle="Check status without an account"
+              title="Track a booking"
+              subtitle="Check your Duffel order and schedule updates"
               onPress={() => navigation.getParent()?.navigate('Track')}
             />
           </BlueprintCard>

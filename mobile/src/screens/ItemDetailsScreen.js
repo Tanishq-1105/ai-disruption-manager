@@ -18,7 +18,7 @@ export default function ItemDetailsScreen({ route, navigation }) {
         {category === 'cabs' ? <CabDetails item={item} /> : null}
 
         <Button
-          label="Continue to booking"
+          label={category === 'flights' ? 'Review sandbox booking' : 'Continue to booking'}
           onPress={() => navigation.navigate('Booking', { category, item })}
           style={styles.bookButton}
         />
@@ -31,7 +31,7 @@ function FlightDetails({ item }) {
   return (
     <>
       <Text style={styles.heading}>
-        {item.airline} {item.flightNumber}
+        {item.flightNumber || item.airline}
       </Text>
       <Text style={styles.route}>
         {item.origin} → {item.destination}
@@ -63,7 +63,8 @@ function FlightDetails({ item }) {
       <BlueprintCard style={styles.card}>
         <Row label="Duration" value={`${Math.round(item.durationMinutes)} min`} />
         <Row label="Stops" value={item.stops === 0 ? 'Nonstop' : `${item.stops} stop${item.stops > 1 ? 's' : ''}`} />
-        <Row label="Source" value={item.source === 'sabre' ? 'Live Sabre data' : 'Sample data'} />
+        <Row label="Source" value={item.source === 'duffel' ? 'Duffel sandbox' : item.source === 'sabre' ? 'Sabre search' : 'Sample data'} />
+        {item.expiresAt ? <Row label="Offer expires" value={new Date(item.expiresAt).toLocaleTimeString()} /> : null}
       </BlueprintCard>
     </>
   );

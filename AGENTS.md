@@ -4,7 +4,10 @@
 > context for the repository. Inspect only the source files relevant to the
 > requested change instead of rereading the whole project.
 
-Last source review: 2026-08-19
+For the latest session status, verification results, open issues, and prioritized
+work plan, read [SESSION_STATUS.md](./SESSION_STATUS.md) next.
+
+Last context update: 2026-09-13
 
 ## Source-of-truth order
 
@@ -14,7 +17,7 @@ Last source review: 2026-08-19
 4. `CLAUDE.md` contains the original product vision and roadmap. Some of its
    stack choices describe the target architecture, not code that exists today.
 5. For every change under `mobile/`, also follow `mobile/AGENTS.md`. The mobile
-   app is deliberately pinned to Expo SDK 54.
+   app uses Expo SDK 57 to match the test phone (upgraded at the user's request).
 
 Update this file when an API, architecture boundary, setup requirement, major
 feature status, or non-negotiable invariant changes.
@@ -31,9 +34,11 @@ rebooked**.
 
 The system intentionally separates:
 
-- **Information/search:** real Sabre data where the trial account supports it.
-- **Actions/ticketing:** an in-memory simulator, because the sandbox cannot
-  cancel or reissue real airline tickets.
+- **Information/search:** Duffel test offers by default; Sabre is an alternative
+  where its trial account supports the route. Sandbox offers are API-backed
+  test data, not live market fares.
+- **Actions/ticketing:** Duffel test orders for flight replacements; an in-memory
+  simulator for demo trips, disruptions, original tickets, and dependents.
 
 Both belong behind `src/providers/index.js`. The agent core must not depend
 directly on Sabre or simulator implementations.
@@ -49,7 +54,8 @@ directly on Sabre or simulator implementations.
   refresh skew.
 - Real flight search through Sabre InstaFlights
   (`GET /v1/shop/flights`), normalized for the mobile app.
-- Mock hotel search, mock cab search, and deterministic mock flight status.
+- Mock hotel/cab search and simulator flight-status fixtures; member tracking
+  never silently falls back to those fixtures.
 - MongoDB-backed member accounts and search history.
 - JWT signup, login, session restore, required auth, and optional auth.
 - In-memory trip graph and simulated booking state.
@@ -59,29 +65,52 @@ directly on Sabre or simulator implementations.
 - Phase 4 Option Engine: viability filtering and deterministic, explainable
   scoring of replacement flights.
 - Phase 5 Policy Engine: bounded autonomy returning ACT, SPLIT or ESCALATE.
-- Phase 6 Safe Executor: idempotent booking, confirm-before-release ordering,
-  candidate fallback on failure, and an audit entry per action.
+- Phase 6 Safe Executor: refreshed-offer policy/viability checks, idempotent
+  booking, independent confirmation before release, fallback only after definite
+  rejection, and an audit entry per action. Pending outcomes pause purchases.
+- Hotel/ground adjustments run only after successful flight recovery; otherwise
+  they are recorded as SKIPPED. Failed adjustments remain visible in the message.
 - End-to-end recovery loop wired to the control panel via
   `POST /simulator/trips/:tripId/recover`.
+- Recovery updates the flight node to its confirmed replacement and serializes
+  overlapping recovery requests for the same provider/trip within one process.
 - Durable Mongo-backed audit trail (`audit` collection), written per recovery
   and readable after the request that created it.
 - Notifier: composes the single member-facing message, returned in the recovery
   response and rendered in the control panel.
-- Duffel adapter behind the provider port: real sandbox search, seat maps,
-  order creation, independent confirmation and cancellation.
+- Duffel adapter behind the provider port: sandbox search, seat maps, order
+  creation, independent order lookup, reconciliation and cancellation. Recovery
+  verifies the order ID, paid/confirmed state, exact fare and itinerary before
+  releasing the original ticket.
 - **Duffel is the default provider for search and booking.** Sabre stays wired
   and one env var away (`SEARCH_PROVIDER=sabre`, `BOOKING_PROVIDER=simulator`).
 - Physical-plausibility filtering of search results before they reach the app
   or the agent core.
-- Mobile search/results/filter/sort/details flows, tracking, auth, and history.
-- Mobile demo-only booking confirmation, empty Trips state, and locally stored
-  autonomy/notification preferences.
+- Mobile search/results/filter/sort/details flows, auth, and recent search history.
+- Authenticated Duffel sandbox checkout for one adult, with passenger details,
+  fresh server quotes, explicit review of changed fares, and independent order
+  confirmation. Confirmed bookings automatically appear in Protected Trips.
+- Mongo-backed member trips, durable request claims, ownership checks, and
+  reconciliation of ambiguous order outcomes without another purchase.
+- Track reads the saved Duffel order and airline-initiated schedule changes.
+  It does not fabricate live flight status or accept schedule changes.
+- Four mobile tabs: Home, Trips, Track, You; locally stored autonomy/notification
+  preferences. No History tab and no duplicate parent/child screen names.
+
+The localhost control panel can now query confirmed Duffel sandbox member
+bookings by exact airline and flight number, simulate a cancellation or delay
+for all matching passengers, and run the existing safe recovery independently
+per passenger. A saved member trip is updated only after the replacement is
+independently confirmed. Recovery claims/checkpoints for this batch remain
+process-local and are the next hardening task.
 
 ### Not implemented yet
 
 - A real booking/payment/ticketing API for production. Duffel's sandbox covers
   the booking path in test mode; no live ticketing adapter exists.
-- Persisted trips or a member trip-graph API.
+- Durable recovery claims/checkpoints and restart reconciliation for the new
+  persisted-member recovery bridge.
+- Automatic monitoring of member trips and a general live flight-status feed.
 - LangGraph orchestration.
 - PostgreSQL trip/audit storage and Redis search caching described by the
   original target architecture.
@@ -89,17 +118,42 @@ directly on Sabre or simulator implementations.
 - WhatsApp/email/SMS delivery. The message is composed; no channel sends it.
 - AWS deployment, production ticketing adapter, and hardening/circuit breakers.
 
-The control panel's **Force next booking failure** button now works end to end:
-arm it, then click **Run recovery**, and the agent's first booking attempt
-fails, the old ticket is retained, and it falls through to the next ranked
-candidate before releasing the old one. Verified live on 2026-08-25.
+The control panel's **Force next booking failure** button affects both recovery
+booking adapters through the provider port. It fails one new booking attempt
+before the order POST (the executor may already have refreshed its offer). Cached idempotent retries return their booking
+without consuming the flag; the next new attempt consumes it.
 
-Re-seeding a trip deliberately clears that trip's bookings and idempotency keys.
-Without it a second demo run reuses the first run's keys, `bookFlight`
-short-circuits to the cached booking, and the armed failure never fires.
+Re-seeding a trip clears that trip's simulator bookings and simulator idempotency
+keys. Duffel's adapter has its own separate in-memory idempotency map.
+Without re-seeding, a second simulator demo can reuse the first run's keys,
+return a cached booking, and leave the armed failure unconsumed.
 
-The mobile Booking screen still confirms a demo action only; it creates no
-reservation, payment, ticket, or trip.
+Member checkout creates actual Duffel **test orders** and persistent member
+trip records. It only accepts a `duffel_test_` token, even if the legacy live
+adapter override is enabled. It uses a test balance and produces no usable
+flight ticket or real charge. Hotel/cab checkout is not implemented.
+
+After a confirmed replacement, recovery calls the provider's `replaceFlight`
+operation to update the node's booking id/reference, itinerary, actual fare,
+and `CONFIRMED` status. Schedules are stored in UTC and stale delay projections
+are cleared; graph ids/edges are preserved. An `UPDATE_FLIGHT` audit entry
+records the change. This also happens if releasing the old ticket failed, so
+holding two tickets does not cause another purchase. Failed, pending, or
+unauthorized execution leaves the cancelled node and original ticket intact.
+An unresolved order returns `REVIEW_REQUIRED`, `pendingBookingId` when known,
+and a reason. Another recovery request checks that same attempt without search
+or another POST; it can resume after independent confirmation.
+
+Repeating recovery of the repaired flight does not search or book again.
+Requests for the same provider/trip are serialized and reread the graph after
+the preceding request completes. Pending attempts are scoped to that simulator
+flight node; a completed attempt is cleared only after the replacement is saved.
+A later cancellation of the replacement can start a new recovery. A failed graph
+update can reuse the already confirmed purchase without repeating booking/release.
+These protections and Duffel's in-flight/ambiguous-result cache remain process-local;
+durable recovery claims and restart reconciliation are not implemented. Do not
+restart or reseed to clear an unresolved order: inspect/reconcile it first.
+Member checkout has its own durable Mongo request state, described below.
 
 ## Architecture at a glance
 
@@ -110,24 +164,31 @@ Judge control panel in public/ ------+--> Express routes
                                            |
                        +-------------------+-------------------+
                        |                                       |
-                 provider port                         auth/history stores
+                 provider port                         member/auth/history/audit stores
              src/providers/index.js                         MongoDB
                        |
-          +------------+-------------+
-          |            |             |
-     Sabre search   mock data    in-memory simulator
-                                  |
-                         detectDisruptions(trip)
-                                  |
-                         analyseImpact(trip, event)
+          +------------+-------------+-------------------+
+          |            |             |                   |
+       Duffel       Sabre         mock data       in-memory simulator
+   test search/     search                        demo trips/disruptions
+     booking                                             |
+                                               agent phases 2 through 6
 ```
 
 Current search flow:
 
 ```text
 mobile search -> /search/* -> optional JWT -> provider
-  -> Sabre flight search or mock hotel/cab data
+  -> Duffel test flight search (or Sabre) or mock hotel/cab data
   -> normalize where needed -> log history if signed in -> response
+```
+
+Current member booking flow:
+
+```text
+sign in -> server refreshes offer -> review fare/passenger -> explicit confirmation
+  -> atomic Mongo request claim -> recheck fare/itinerary -> Duffel test order
+  -> independent order lookup -> saved Protected Trip -> Track order/changes
 ```
 
 Current simulator flow:
@@ -137,11 +198,13 @@ seed demo -> cancel/delay a node -> panel polls /analyse every 2 seconds
   -> pure Watcher events -> pure downstream impact classifications
 ```
 
-Target recovery flow, still to build:
+Current simulator recovery flow:
 
 ```text
-Notice -> Assess -> Pick -> Policy -> Book new -> Confirm new
-  -> Release old -> Adjust safe dependents -> Notify and audit
+Notice -> Assess -> Pick -> Policy -> Refresh offer -> Recheck policy/viability
+  -> Book new -> Independently confirm order/fare/itinerary -> Release old
+  -> Update flight -> Adjust dependents -> Compose message and persist audit
+Pending/unknown order -> pause -> read-only reconciliation on the next recovery
 ```
 
 ## Non-negotiable design and safety rules
@@ -149,8 +212,14 @@ Notice -> Assess -> Pick -> Policy -> Book new -> Confirm new
 - Route external travel and action calls through the provider port.
 - Keep all money, scoring, policy, and booking decisions deterministic and
   explainable. An LLM may not decide spending or booking behavior.
-- **Confirm the new ticket before releasing the old ticket.** If a booking
-  fails, retain the old ticket and try the next candidate.
+- **Confirm the new ticket before releasing the old ticket.** Only a definitive
+  rejection permits fallback. A pending order, timeout, unreadable confirmation,
+  or mismatched order pauses purchases and retains the original and dependents.
+- Recovery providers must implement `prepareFlight`, `bookFlight`, `getBooking`
+  and `cancelBooking`. The prepared quote is the exact quote used for purchase;
+  the adapter must not refresh its price again after policy authorisation.
+  Only an error explicitly marked `bookingOutcome: 'NOT_CREATED'` permits another
+  candidate. Unknown errors default to review; Duffel can reconcile by metadata.
 - Every mutating booking request must carry a unique idempotency key.
 - Every automatic action and its authorizing policy decision must eventually be
   written to the audit trail.
@@ -194,12 +263,14 @@ Default policy intent from the product vision:
 |   |   |-- executor.js           Phase 6 safe executor (provider injected)
 |   |   |-- notifier.js           pure member-message composer
 |   |   `-- recovery.js           orchestrates phases 2-6
+|   |-- bookings/                member quote, checkout, validation, reconciliation
 |   |-- simulator/
 |   |   |-- state.js              in-memory trips/bookings/idempotency/fail flag
 |   |   `-- demoTrip.js           linked demo fixture
 |   |-- duffel/
 |   |   |-- client.js             raw Duffel REST calls + live-token guard
-|   |   `-- adapter.js            provider-port shape, owns idempotency
+|   |   |-- adapter.js            recovery provider shape, in-memory idempotency
+|   |   `-- member.js             sandbox checkout and order/change tracking
 |   |-- sabre/
 |   |   |-- auth.js               double-base64 auth and token cache
 |   |   |-- client.js             Sabre request wrapper and product calls
@@ -213,16 +284,17 @@ Default policy intent from the product vision:
 |   |-- mock/                      hotel, cab, and flight-status fixtures
 |   |-- auth/                      bcrypt helpers and JWT helpers
 |   |-- middleware/                required and optional bearer auth
-|   |-- store/                     Mongo connection, users, history, audit
-|   `-- routes/                    health/auth/search/tracking/history/simulator
+|   |-- store/                     Mongo users, history, audit, memberTrips
+|   `-- routes/                    health/auth/search/bookings/trips/tracking/history/simulator
 |-- scripts/
 |   |-- probe-sabre.js           live provisioning probe (network, needs .env)
 |   |-- probe-providers.js       feasibility probe for Duffel/AeroDataBox/OpenSky
 |   |-- check-plausibility.js    shows what the plausibility filter drops
-|   `-- demo-rebook.js           end-to-end Phase 4 ranking on live data
+|   |-- demo-rebook.js           end-to-end Phase 4 ranking on live data
+|   `-- smoke-member.js          live sandbox member flow with owned test cleanup
 |-- test/                          Node built-in test runner suites
 `-- mobile/
-    |-- AGENTS.md                  Expo SDK 54 instruction
+    |-- AGENTS.md                  Expo SDK 57 instruction
     |-- README.md                  physical-device setup and app notes
     |-- package.json               Expo/React Native dependencies
     |-- app.json                   Expo app configuration
@@ -246,25 +318,25 @@ security warning below before touching or running it.
 Backend requirements:
 
 - Node.js `>=20.6.0` according to the root package.
-- MongoDB reachable through `MONGO_URI` for accounts/history and their tests.
-- Sabre credentials for real flight search.
+- MongoDB reachable through `MONGO_URI` for member trips/accounts/history/audit.
+- `DUFFEL_ACCESS_TOKEN` with a test token for default search, checkout, tracking.
+- Sabre credentials only when using Sabre search.
 
-Optional provider keys are absent by default and the app runs without them;
-the provider port falls back to the simulator. Verify any key before trusting an
-adapter built on it:
+Missing provider credentials do not make checkout or tracking work through a
+simulator fallback. Check provider configuration explicitly:
 
 ```powershell
 npm run probe:providers
 ```
 
-Verified 2026-08-25: **OpenSky is reachable with no credentials at all**
-(`GET /api/states/all`, HTTP 200). Duffel and AeroDataBox report SKIP until
-`DUFFEL_ACCESS_TOKEN` and `RAPIDAPI_KEY` are set.
-
 Backend environment keys in `.env.example`:
 
 ```dotenv
-PORT=4000
+PORT=4001
+SEARCH_PROVIDER=duffel
+BOOKING_PROVIDER=duffel
+STATUS_PROVIDER=duffel
+DUFFEL_ACCESS_TOKEN=
 SABRE_CLIENT_ID=
 SABRE_CLIENT_SECRET=
 SABRE_BASE_URL=https://api-crt.cert.havail.sabre.com
@@ -277,11 +349,7 @@ MONGO_DB_NAME=travel_disruption_concierge
 Do not rely on the development JWT fallback in `src/config.js` outside local
 development. Generate a strong `JWT_SECRET` as shown in `.env.example`.
 
-There is a current port-default mismatch to keep in mind:
-
-- `src/config.js` defaults to port `4001` when `PORT` is absent.
-- Root `.env.example` specifies port `4000`.
-- `mobile/.env.example` points to port `4001`.
+The backend default and both environment templates use port `4001`.
 
 The backend's actual `PORT` and mobile `EXPO_PUBLIC_API_BASE_URL` must match.
 Prefer explicit values in both local `.env` files instead of relying on a
@@ -299,6 +367,14 @@ development computer. Phone and computer must share a network, and the backend
 port must be allowed through the local firewall.
 
 ## Exact local startup
+
+On Ubuntu, install dependencies with `npm ci` and `npm --prefix mobile ci`
+from the root, then run `npm run dev` and `npm run mobile` in separate terminals.
+A hosted MongoDB connection does not need a local MongoDB installation. Use
+`hostname -I` to find the phone's LAN address. See README.md's Ubuntu section
+for restart instructions and SESSION_STATUS.md for the workstation state.
+The test script uses Node's automatic test discovery (`--test` without a
+directory argument), which works with Node 24 as well as the earlier runtime.
 
 From the repository root on Windows PowerShell:
 
@@ -325,9 +401,8 @@ npx expo start
 
 The equivalent root command is `npm run mobile`. Always run Expo/npm dependency
 commands from `mobile/` or through that root script. Never install Expo in the
-backend root. Expo is pinned to SDK 54 to match the available Expo Go client.
-Recent Expo tooling may warn if Node is below `20.19.4`; upgrading Node is the
-first troubleshooting step if Metro behaves unexpectedly.
+backend root. Expo uses SDK 57 to match the available Expo Go client. SDK 57
+requires Node.js 22.13 or newer; the Ubuntu workstation uses Node.js 24.20.0.
 
 ## HTTP API currently exposed
 
@@ -340,21 +415,33 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `POST /auth/signup` | None | Creates Mongo user, returns JWT and public user |
 | `POST /auth/login` | None | Verifies password, returns JWT and public user |
 | `GET /auth/me` | Required | Restores the current user from JWT |
-| `GET /search/flights` | Optional | Real Sabre InstaFlights, normalized, implausible itineraries dropped; response adds `filtered` count; logs signed-in search |
+| `GET /search/flights` | Optional | Duffel/Sabre normalized offers; invalid/missing airports or date return 400; logs signed-in search |
 | `GET /search/hotels` | Optional | Five deterministic mock listings; logs signed-in search |
 | `GET /search/cabs` | Optional | Four deterministic mock listings; logs signed-in search |
-| `GET /tracking/:flightNumber` | None | Sabre status attempt; mock only when provisioned route returns 404/null |
+| `POST /bookings/quote` | Required | Refreshes Duffel offer and saves versioned quote from `{ offerId }` |
+| `POST /bookings` | Required | Sandbox checkout from `{ quoteId, version, passenger }`; requires `Idempotency-Key: <quoteId>` |
+| `GET /trips` | Required | Own saved bookings, newest first; excludes unsubmitted quotes and definitive failures |
+| `GET /trips/:id` | Required | Own trip; reconciles pending/ambiguous order outcomes |
+| `GET /trips/:id/tracking` | Required | Reads own Duffel order and airline-initiated changes; no mock fallback |
+| `GET /tracking/:flightNumber` | None | Default 501 `SAVED_TRIP_REQUIRED`; explicit Sabre mode attempts status and returns 503 if unavailable |
 | `GET /history` | Required | Current user's searches, newest first |
 | `POST /simulator/demo/seed` | None | Seeds `demo-trip` fixture |
 | `POST /simulator/trips/:tripId/seed` | None | Seeds custom `{ nodes: [...] }` |
 | `POST /simulator/trips/:tripId/nodes/:nodeId/cancel` | None | Sets node status to `CANCELLED` |
 | `POST /simulator/trips/:tripId/flights/:flightId/delay` | None | Sets delay and projected arrival from `{ minutes }` |
-| `POST /simulator/bookings/fail-next` | None | Arms exactly one simulated booking failure |
+| `POST /simulator/bookings/fail-next` | None | Arms one new booking failure through either active adapter; cached retries do not consume it |
+| `GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123` | None | Lists confirmed sandbox member bookings for an exact flight |
+| `POST /simulator/member-bookings/disrupt` | None | Simulates cancellation or delay for every confirmed matching passenger |
+| `POST /simulator/member-bookings/recover` | None | Runs safe recovery independently for affected member trips and updates saved trips after confirmation |
 | `GET /simulator/trips/:tripId/analyse` | None | Returns Watcher events and impact arrays |
 | `POST /simulator/trips/:tripId/recover` | None | Runs the whole loop: detect, assess, search real alternatives, score, apply policy, book safely; returns ranked options, the decision, execution attempts, the audit trail, plus `recoveryId` and `auditPersisted` |
 | `GET /simulator/trips/:tripId/audit` | None | The durable audit trail for one trip, newest first |
 | `GET /simulator/audit` | None | Recent audit entries across all trips (`?limit=`) |
 | `GET /simulator/state` | None | Returns current in-memory trips and bookings |
+
+Missing simulator trips/nodes return 404. Invalid delay/node payloads return
+400. Audit reads remain independent of in-memory trip existence so historical
+audits are still readable after restart.
 
 Search query names are case-sensitive as currently implemented:
 
@@ -362,9 +449,44 @@ Search query names are case-sensitive as currently implemented:
 - Hotels: `destination`, `checkIn`, `checkOut`.
 - Cabs: `destination`.
 
+Flight airport codes must be distinct uppercase three-letter strings; dates
+must be valid YYYY-MM-DD dates. Hotels require checkout after check-in. Missing
+or malformed fields return 400 before any travel-provider calls.
+
 Search endpoints remain browseable without an account. A valid bearer token
-adds history logging; an invalid token is ignored by optional auth. History and
+adds history logging; an invalid token is ignored by optional auth. History, checkout, saved trips, tracking, and
 the authenticated mobile tabs require a valid bearer token.
+
+## Member checkout constraints
+
+- `src/routes/bookings.js` calls `src/bookings/service.js`, which receives the
+  provider port and Mongo store. All trip reads and updates include the JWT
+  owner's ID. Passenger IDs, payment amounts and currency come from Duffel's
+  server-side quote, never client-provided fare fields.
+- One-way, one adult aged 18+, with validated contact and required passport
+  details. The screen offers a test passenger preset. No live-token override,
+  card collection, automatic alternative purchase, or member cancellation API.
+- A unique `{userId, offerId}` index and atomic `QUOTED -> BOOKING` claim prevent
+  duplicate order POSTs for the same quote across workers/restarts. The quote's
+  UUID is the required idempotency key and Duffel metadata reference.
+- A changed price, currency, itinerary or document requirement returns 409
+  `QUOTE_CHANGED` with a new version. The member must review and confirm again.
+  Preflight failures can safely return to `QUOTED` before any order POST.
+- Order creation is independently checked using GET order before reporting
+  `CONFIRMED` (booking reference and payment no longer awaiting payment).
+  `BOOKING`, `PENDING`, and `REVIEW_REQUIRED` are visible pending states; a
+  timeout is never permission for a second POST or a different-flight purchase.
+- If the response was lost, reconciliation searches orders for the offer and
+  matches the server-generated metadata. An unresolved outcome stays pending
+  for review, including a crash after claim but before POST. It has no automatic
+  retry lease. Definitive rejections become `FAILED`; cancellations `CANCELLED`.
+- Tracking reads `/air/orders/{id}` and `/air/airline_initiated_changes?order_id=`.
+  It returns booking status, checked/synced timestamps and previous/new schedules;
+  reading does not accept a change or trigger recovery. It does not establish
+  boarding, landed or on-time status. A general flight-number feed remains absent.
+- Recovery now has its own refreshed-offer and confirmation checks, but its
+  pending state remains process-local. Member checkout's Mongo claims do not
+  provide durable idempotency to the separate recovery executor.
 
 ## Data shapes
 
@@ -452,6 +574,11 @@ then id, so ordering never depends on provider response order.
   `createdAt`; unique index on `email`.
 - `history`: UUID `id`, `userId`, category, raw query object, result count, ISO
   `createdAt`; indexed by user and newest-first time.
+- `memberTrips`: UUID `id`, JWT `userId`, `offerId`, quote/version, status,
+  passenger/fingerprint, order ID/reference, total and embedded booking audit.
+  Unique indexes on `id` and `{userId, offerId}`; user/time index. Requests persist
+  before vendor mutation; failure to persist prevents checkout. Public responses
+  omit contact/passport details and internal passenger identifiers.
 - `audit`: UUID `id`, `recoveryId`, `tripId`, `sequence`, ISO `at`, `action`,
   `outcome`, `authorisedBy`, `detail`, plus optional `optionId`, `bookingId`,
   `idempotencyKey`, `nodeId`, `attempt`, `oldTicketRetained`. Indexed by
@@ -466,84 +593,27 @@ process-memory only and disappear on restart.
 
 ## Sabre-specific facts
 
-- Auth requires **double Base64**: encode client ID and secret separately, join
-  them with `:`, then Base64-encode that joined value.
-- Token cache refreshes when less than 60 seconds remain.
-- The current trial account supports InstaFlights at `/v1/shop/flights`.
-- Bargain Finder Max `/v2/shop/flights` is not provisioned for this account.
-- Hotel endpoint paths tried so far return gateway 404, so the provider uses
-  mock hotels.
-- Flight-status endpoint paths tried so far return gateway 404, so the current
-  configured path returns `null` on 404 and the route uses deterministic mock
-  status.
-- A Sabre InstaFlights 404 with JSON message `No results were found` is treated
-  as an empty result, not a missing route.
-- Tracking does **not** fall back on every failure: authentication, network, or
-  non-404 Sabre errors currently become HTTP 500 responses.
-- Sabre distinguishes two auth failures, and the wording is the diagnostic:
-  `Wrong clientID or clientSecret` means the credential format parsed and the
-  values were rejected; `Credentials are missing or the syntax is not correct`
-  means the encoding itself is wrong. Verified 2026-08-24 that only `POST
-  /v2/auth/token` with double base64 produces the former, so `src/sabre/auth.js`
-  uses the correct scheme.
-- Credentials were rotated again on 2026-08-24 and now authenticate. The
-  earlier pair was rejected; if calls start failing with `invalid_client`,
-  regenerate CERT credentials rather than editing the auth code.
-- Provisioning verified live on 2026-08-24 with `npm run probe:sabre` -
-  **11/11 Part 1 products reachable** on this CERT account:
-
-| Product | Verified path | Required query |
-|---|---|---|
-| InstaFlights Search | `GET /v1/shop/flights` | origin, destination, departuredate |
-| Lead Price Calendar v2 | `GET /v2/shop/flights/fares` | origin, destination, lengthofstay |
-| Lead Price Calendar v1 | `GET /v1/shop/flights/fares` | + departuredate, returndate, lengthofstay |
-| Fare Range | `GET /v1/historical/flights/fares` | origin, destination, earliestdeparturedate, latestdeparturedate, lengthofstay |
-| Low Fare History | `GET /v1/historical/shop/flights/fares` | origin, destination, departuredate, returndate |
-| Low Fare Forecast | `GET /v1/forecast/flights/fares` | origin, destination, departuredate, returndate |
-| Multi-Airport City | `GET /v1/lists/supported/cities` | country |
-| Airports at Cities | `GET /v1/lists/supported/cities/{mac}/airports` | - |
-| Airline Lookup | `GET /v1/lists/utilities/airlines` | airlinecode |
-| City Pairs Lookup | `GET /v1/lists/supported/shop/flights/origins-destinations` | origin |
-| Aircraft Equipment | `GET /v1/lists/utilities/aircraft/equipment` | aircraftcode |
-
-- The Overview docs for Lead Price Calendar, Fare Range, and Multi-Airport City
-  say they need a signed Travel Insight Engine Amendment. That warning did not
-  hold for this CERT account - all three answered. Probe before believing a
-  documented entitlement gate.
-- **Fare Range is not under `/shop/`.** Its path is `/v1/historical/flights/fares`,
-  and `/v1/shop/flights/fares` - which looks like it - is really Lead Price
-  Calendar v1. Sabre returns HTTP 200 either way, so only the response shape
-  (`FareData`/`MedianFare` vs `FareInfo`/`LowestFare`) tells the two apart.
-  `src/sabre/probe.js` asserts those marker fields for exactly this reason.
-- Sabre reports missing mandatory query parameters **one at a time** in 400
-  `ERR.RAF.VALIDATION` messages; iterate the 400s to discover a full param set.
-- Low Fare History returns `"N/A"` for every shop date except the current one on
-  this account, so treat it as effectively empty.
-- Parts 2-4 probed 2026-08-25: **only InstaFlights v2 is reachable.** Flight
-  Status/FLIFO (5 paths), Flight Schedules, Create PNR, Enhanced Seat Map,
-  Alternate Date Search, Revalidate Itinerary and Bargain Finder Max are all
-  absent. Get Booking exists but refuses this account.
-
-| Product | Path | Result |
-|---|---|---|
-| InstaFlights v2 | `GET /v2/shop/flights` | available, same `PricedItineraries` shape |
-| Get Booking | `POST /v1/trip/orders/getBooking` | HTTP 200 carrying `UNAUTHORIZED_ACCESS` |
-| Bargain Finder Max | `POST /v2/shop/flights` | `No service exists` |
-| Flight Status / FLIFO | 5 paths tried | gateway 404, no route |
-| Flight Schedules | 4 paths tried | `No service exists` |
-| Create PNR / Seat Map / Alternate Date / Revalidate | - | gateway 404, no route |
-
-- **`GET /v2/shop/flights` is InstaFlights v2, not Bargain Finder Max.** Probing
-  BFM with GET returns 200 and looks provisioned; only `POST` with a real
-  `OTA_AirLowFareSearchRQ` body reveals `No service exists`. Method matters as
-  much as path when identifying a product.
-- **HTTP 200 is not proof of success.** Get Booking answers 200 with
-  `errors[].category === 'UNAUTHORIZED'`. `src/sabre/probe.js` inspects the body
-  for embedded errors before calling anything available.
-- Consequence for the roadmap: there is **no Sabre flight-status feed on this
-  account**, so the Phase 2 Watcher cannot be driven by Sabre. Part 3 monitoring
-  needs a third-party feed (AeroDataBox/AviationStack/OpenSky) or the simulator.
-  Seat maps and real booking stay simulated, as the architecture already assumes.
+- Auth uses **double Base64**: encode client ID and secret separately, join with
+  `:`, then encode the result. Cached tokens refresh with a 60-second skew.
+  `invalid_client` usually requires checking/rotating CERT credentials, not
+  changing the encoding. Never expose credential values in diagnostics.
+- This trial account supports InstaFlights `GET /v1/shop/flights` and
+  `GET /v2/shop/flights`. A JSON `No results were found` 404 means empty results.
+  Coverage is limited; Duffel is the default for broader route coverage.
+- `GET /v2/shop/flights` is InstaFlights v2. Bargain Finder Max is **POST** at
+  that path and is not provisioned. Method and response shape both matter.
+- Lead Price Calendar, Fare Range, Low Fare History/Forecast, Multi-Airport City,
+  airline/aircraft lookup and city pairs are included in `scripts/probe-sabre.js`.
+  Fare Range is `/v1/historical/flights/fares`; `/v1/shop/flights/fares` is
+  Lead Price Calendar v1. Check `FareData` versus `FareInfo` markers.
+- Flight Status/FLIFO, schedules, PNR creation, seat maps, alternate dates and
+  revalidation are not provisioned on this trial account. Get Booking can return
+  HTTP 200 with embedded `UNAUTHORIZED_ACCESS`; 200 alone is not success.
+- Missing mandatory parameters are reported one at a time. Provisioning and
+  response-marker classification live in `src/sabre/probe.js` and probeCatalog.
+  Re-probe the account before changing endpoints or assuming new access.
+- Explicit `STATUS_PROVIDER=sabre` can attempt the legacy flight-number route.
+  Missing status returns 503; member tracking never substitutes mock status.
 
 ## Provider selection
 
@@ -551,17 +621,12 @@ process-memory only and disappear on restart.
 |---|---|---|
 | `SEARCH_PROVIDER` | `duffel` | `sabre` |
 | `BOOKING_PROVIDER` | `duffel` | `simulator` |
-| `STATUS_PROVIDER` | `simulator` | - |
+| `STATUS_PROVIDER` | `duffel` | `sabre` for legacy flight-number lookup only |
 | `POLICY_COST_CAP_CURRENCY` | `EUR` | must match what the search provider quotes |
 
 `src/providers/search.js` is the single search entry point: it picks the
 provider, normalizes, and applies the plausibility filter, so the mobile route
 and the recovery loop cannot tell the providers apart.
-
-**Route coverage is why Duffel is the default.** Verified 2026-08-25 over ten
-routes: Sabre returned data for 1 (JFK-LAX); Duffel returned offers for all 10,
-including DEL-BOM (165 offers, Air India), BLR-DEL (135) and HYD-DEL (102),
-which Sabre has zero coverage for.
 
 `BOOKING_PROVIDER=duffel` requires `SEARCH_PROVIDER=duffel` - a Duffel order
 needs a Duffel offer id. `providerMismatch()` warns at startup.
@@ -573,67 +638,51 @@ provider or every recovery escalates on `COST_CAP`.
 
 ## Duffel-specific facts
 
-Verified live 2026-08-25 with a `duffel_test_` token. Duffel fills the three
-gaps this Sabre account cannot: a real seat map, a bookable order, and a
-release path.
+- Search uses `POST /air/offer_requests?return_offers=true`; quote refresh uses
+  `GET /air/offers/{id}`; booking uses `POST /air/orders`; independent lookup uses
+  `GET /air/orders/{id}`. Cancellation creates an order cancellation then confirms
+  it through `/actions/confirm`. See `src/duffel/client.js`.
+- **Do not assume Duffel's `Idempotency-Key` deduplicates POST orders.** A repeated
+  booking can return `422 offer_request_already_booked`. Recovery's adapter owns
+  a process-local cache of in-flight, completed and ambiguous results; member
+  checkout owns a durable Mongo claim.
+  Do not remove either based on the vendor header.
+- An offer request can be booked once; offers expire within minutes. Partner
+  offers can be bookable in test mode, though some expire/fail at checkout.
+  Recovery's candidate fallback does not apply to ambiguous member purchases.
+- Test seat maps exist for Duffel Airways (`ZZ`). Partner offers may return an
+  empty map without an error. Seat selection is not connected to mobile checkout.
+- Test quotes commonly use EUR. Keep exact quoted amount/currency; do not assume
+  a currency or compare recovery policy caps across currencies.
+- The legacy client requires `duffel_test_` unless explicitly overridden with
+  `DUFFEL_ALLOW_LIVE=yes-i-understand`. **Member checkout always requires a test
+  token and `live_mode === false`, regardless of that override.**
+- Saved order and airline-initiated-change tracking is documented in
+  [Duffel's change API](https://duffel.com/docs/api/airline-initiated-changes/schema).
+  It is separate from a general operational flight-status feed.
 
-| Step | Endpoint | Result |
-|---|---|---|
-| Search | `POST /air/offer_requests?return_offers=true` | 27 offers for JFK-LAX |
-| Seat map | `GET /air/seat_maps?offer_id=` | 22 rows, 76/192 bookable |
-| Book | `POST /air/orders` | confirmed, booking reference returned |
-| Confirm | `GET /air/orders/{id}` | independent check before any release |
-| Release | `POST /air/order_cancellations` then `/actions/confirm` | cancelled, refunded |
-
-- **Duffel's `Idempotency-Key` header does NOT deduplicate `POST /air/orders`.**
-  A repeat call with the same key returns `422 offer_request_already_booked`.
-  That is a safe failure - no double charge - but the wrong shape for this
-  agent: the executor reads a throw as "this candidate failed" and moves on, so
-  a retried network call would book a **different flight**. `src/duffel/adapter.js`
-  therefore keeps its own idempotency map and answers a retry from it, the way
-  the simulator does. Do not remove that map on the assumption the vendor header
-  covers it.
-- An offer request can be booked **once**. Offers also expire within minutes, so
-  the executor's fall-through-to-the-next-candidate behaviour matters far more
-  against Duffel than against the simulator.
-- Seat maps exist for **Duffel Airways (`ZZ`)** offers in test mode; partner
-  offers such as BA or AA return an empty list. That is not an error.
-- Prices come back in EUR in test mode, so a policy cost cap in USD will
-  correctly refuse to compare them. Set the cap's currency to match the search
-  before expecting an ACT verdict.
-- `src/duffel/client.js` refuses any token not starting with `duffel_test_`
-  unless `DUFFEL_ALLOW_LIVE=yes-i-understand`. This project books automatically;
-  a live token would create real tickets.
-- Selecting the adapter is configuration, not code: `BOOKING_PROVIDER=duffel`.
-- **Not every offer is bookable.** A live recovery hit `422 Requested offer is no
-  longer available` on two candidates and a `502 Internal Airline Error` on a
-  third before the fourth succeeded. This is normal, and it is exactly what the
-  executor's fall-through exists for - but it means `maxAttempts` must be
-  generous (currently 6) and the ranked list must contain genuinely different
-  flights.
-- Partner-airline offers (IB, AA, AS, CM) **are** bookable in test mode; only
-  seat maps are Duffel Airways-only. An earlier assumption that partner offers
-  could not be booked was wrong - Iberia booked fine.
-- An offer request can be booked **once**.
-
-Exercise the whole path:
-
-```powershell
-npm run demo:duffel
-```
+Exercise the provider adapter with `npm run demo:duffel`, or the recovery loop with
+`npm run smoke:recovery` (creates and cleans up its own test order/audit).
+Exercise authenticated member checkout/trips/tracking with `npm run smoke:member` against a temporary
+backend (see README.md). External checks create and cancel sandbox orders;
+keep them separate from the automated suite.
 
 ## Mobile app behavior
 
-Navigation has five bottom tabs:
+Navigation has four bottom tabs:
 
-- **Home:** public search entry and recent signed-in history.
-- **Trips:** auth-gated; honest empty state until booking/trip APIs exist.
-- **Track:** public flight-number lookup.
-- **History:** auth-gated search history.
-- **You:** auth-gated account, local autonomy limits, notification toggles,
-  and logout.
+- **Home:** public search entry and recent signed-in searches. History's API
+  remains for this feature; there is no History tab.
+- **Trips:** auth-gated Protected Trips from Mongo, refreshed on focus and pull.
+  Details show itinerary, passenger name, actual fare and booking reference.
+- **Track:** auth-gated saved-flight selector, reads Duffel when focused or
+  selected and on manual refresh. Shows booking status and schedule changes.
+- **You:** auth-gated account, local autonomy limits, notification toggles, logout.
 
-The Home stack contains Search, Results, Item Details, and Booking. Results use
+Nested route names are distinct from their parent tabs: `ProtectedTrips`,
+`FlightTracking`, `Profile`; Home's parent is `HomeTab`. The Home stack includes
+Search, Results, Item Details, Booking, and checkout Login/Signup. Signing in
+from checkout returns to the selected offer. Results use
 `mobile/src/config/categories.js` so one configuration drives fields, API call,
 text matching, filters, sorting, and row component for flights/hotels/cabs.
 
@@ -646,7 +695,7 @@ text matching, filters, sorting, and row component for flights/hotels/cabs.
 - Autonomy limits and channel preferences are local-only SecureStore state
   under `autonomy_limits_v1`; no backend profile endpoint consumes them yet.
 
-## Tests and verification
+## Verification commands
 
 Run all backend tests with:
 
@@ -677,9 +726,6 @@ Inspect what the plausibility filter removes from a live search:
 npm run check:plausibility -- --origin=JFK --destination=LAX
 ```
 
-On 2026-08-25 that kept 47 itineraries and dropped 3, each a JFK-FLL/FLL-LAX
-routing whose second segment crossed 3 hours of timezones in 30 minutes.
-
 Exercise the Option Engine end to end against live Sabre data:
 
 ```powershell
@@ -688,76 +734,6 @@ npm run demo:rebook
 
 It searches, drops implausible itineraries, treats the earliest nonstop as
 cancelled, and prints the ranked replacements with a per-factor breakdown.
-
-Verification on 2026-08-25 (Duffel-primary run):
-
-- Full suite: 202 tests passed, 0 failed.
-- Full loop verified against real APIs end to end: Duffel search returned 27
-  offers collapsing to 5 distinct flights; attempts 1-3 failed (two expired
-  offers, one airline 502) with the old ticket retained each time; attempt 4
-  booked real order `ord_...`; the old ticket was released only after
-  confirmation; hotel and ground were adjusted; the commitment was escalated.
-- `GET /search/flights?origin=DEL&destination=BOM` returns 165 real Air India
-  results - a route Sabre cannot serve at all.
-
-Verification on 2026-08-25 (Duffel run):
-
-- Full suite: 196 tests passed, 0 failed.
-- Duffel verified live end to end through the provider port: search, seat map,
-  book, independent confirm, idempotent retry (same order returned), release.
-- `npm run probe:providers`: OpenSky and both Duffel endpoints reachable;
-  AeroDataBox returns 403 `You are not subscribed to this API` - the RapidAPI
-  key is valid but the AeroDataBox API itself needs a (free) subscription.
-
-Verification on 2026-08-25 (earlier run):
-
-- Full suite: 168 tests passed, 0 failed.
-- Full recovery loop verified live end to end against real Sabre data: a
-  cancelled `flight-out` produced 47 real candidates, `SPLIT` (act on flight,
-  hotel and ground; escalate the commitment), and `RECOVERED`.
-- With a forced failure armed: attempt 1 failed with the old ticket retained,
-  attempt 2 booked, and only then was the old ticket released.
-- Trip state afterwards confirmed bounded autonomy: hotel and ground `ADJUSTED`,
-  the escalated commitment left `CONFIRMED` and untouched.
-
-Verification on 2026-08-25:
-
-- Full suite: 115 tests passed, 0 failed.
-- Plausibility filter verified against live InstaFlights data.
-- Phase 4 verified end to end on live JFK-LAX: 47 usable itineraries, 20 viable
-  replacements ranked, 26 correctly refused for departing before the member
-  could reach the airport.
-
-Verification on 2026-08-24:
-
-- Full suite: 69 tests passed, 0 failed, Mongo store tests included (a local
-  `mongod` was running for this run).
-- Live Sabre probe: 11/11 Part 1 products reachable; 1/9 across parts 2-4.
-  See the provisioning tables under Sabre-specific facts.
-- InstaFlights data quality checked live: nonstop times, carriers and fares are
-  plausible, but **only 1411 city pairs are supported (684 US-US) and there are
-  zero domestic India routes** - DEL-BOM and BLR-DEL return "No results were
-  found". Demo on US routes.
-- Some connecting itineraries carry impossible segment times (a 30-minute
-  FLL-LAX leg). `src/normalize/plausibility.js` now drops these before they
-  reach the app or `src/agent/detection.js`, whose 45-minute connection check
-  would otherwise draw confident wrong conclusions.
-- **Only `JFK-LAX` returns data on this account.** Verified 2026-08-25 across
-  12 routes and 7 departure dates from +1d to +150d: JFK-LAX returns 30 results
-  every time, and DFW-ORD, LAX-JFK (the reverse!), JFK-MIA, ATL-LAX, ORD-LAX,
-  JFK-SFO, BOS-LAX, JFK-LHR, SFO-JFK, LAS-JFK and DEN-JFK all return zero on
-  every date. City Pairs Lookup lists 1411 *supported* pairs, which is not the
-  same as *populated* - do not infer coverage from it. **Every live-data demo
-  must use JFK-LAX**; anything else needs mock data.
-
-Verification on 2026-08-19:
-
-- 42 non-Mongo tests passed: auth helpers, JWT middleware, detection, impact,
-  simulator, Sabre token behavior, normalization, and mock data.
-- The full suite could not complete because no local `mongod` process was
-  running. The 9 Mongo store tests were not verified in that run.
-- There are no route-level HTTP integration tests, live Sabre tests, mobile
-  automated tests, or end-to-end recovery tests yet.
 
 A green unit suite is not proof that Mongo, Sabre credentials, LAN networking,
 Expo Go, or the end-to-end member flow works. Verify external services and the
@@ -776,13 +752,16 @@ actual UI flow separately.
 8. Click **Run recovery**. The Recovery panel shows the real alternatives it
    considered with per-factor scores, the ACT/SPLIT/ESCALATE verdict, the
    booking attempts, and the audit trail.
-9. To show the safety property: click **Force next booking failure** before
-   **Run recovery**, and watch attempt 1 fail with the old ticket retained.
+9. Arm **Force next booking failure** before recovery to demonstrate fallback
+   while retaining the old ticket, with either Duffel or the simulator adapter.
+10. After recovery, verify the flight card shows `CONFIRMED` and its new
+    schedule; `/simulator/state` contains the replacement booking id. Running
+    recovery again does not buy another ticket for that repaired flight;
+    connection-risk events may still be reported.
 
-The demo now genuinely searches alternatives, scores them, applies policy,
-rebooks, releases the old ticket and writes an audit trail. It still does not
-notify a member over any channel, and the audit trail is per-request rather than
-durably stored.
+The demo searches alternatives, scores them, applies policy, creates a sandbox
+replacement, releases the old demo booking, and persists an audit trail in
+MongoDB on a best-effort basis. It composes a message but does not deliver it.
 
 ## Known risks and traps
 
@@ -799,32 +778,32 @@ as part of normal development.
 - Never read, print, or commit root/mobile `.env` values.
 - Do not confuse the planned PostgreSQL/Redis architecture with the current
   Mongo-plus-memory implementation.
-- Do not call the simulator's unused booking helpers proof of a safe recovery
-  loop; orchestration is absent.
+- Do not infer durable recovery or automatic member monitoring from the tested
+  simulator flow. Pending recovery state remains process-local; persisted member
+  trips are not yet connected. See outstanding work in SESSION_STATUS.md.
 - Do not call a build/test pass proof of working Sabre credentials or Mongo.
 - Do not change Sabre endpoints based only on generic provider docs; confirm
   which products this exact trial account has provisioned.
 - Do not run Expo tooling from the backend root.
-- Keep Expo SDK 54 unless the test phone's Expo Go version and the versioned
+- Keep Expo SDK 57 unless the test phone's Expo Go version and the versioned
   migration instructions have been verified.
 - Preserve user changes in a dirty working tree. Inspect `git status` and the
   relevant diff before editing.
 
 ## Recommended next implementation order
 
-1. Resolve the credential exposure and align backend/mobile example ports.
-2. Build Phase 4 option filtering and deterministic scoring with pure tests.
-3. Build Phase 5 bounded-autonomy policy decisions with pure tests.
-4. Build Phase 6 safe executor: idempotent book, confirm, then release old;
-   preserve old booking on failure and try the next candidate.
-5. Expose recovery/trip APIs and connect the simulator panel end to end.
-6. Add durable audit/trip storage, then SSE progress and mobile Trips UI.
-7. Add notifications and external-service fallbacks.
-8. Add route integration, live-service smoke, mobile, and end-to-end tests.
+Follow the checkboxes and session plan in [SESSION_STATUS.md](./SESSION_STATUS.md).
+Phases 4–6, durable audit storage, authenticated member sandbox checkout,
+persisted trips, and connected mobile booking/tracking already exist. Review
+phone/UI feedback, then add durable recovery claims and integrate saved policy
+and member trips with recovery. Production services and additional
+orchestration remain deferred.
 
 ## How to work efficiently in future chats
 
-- Start with this file and `git status`.
+- Start with this file's opening instructions, SESSION_STATUS.md, and `git status`.
+- Follow the existing code conventions and safety rules; keep changes focused
+  on the active task and preserve unrelated working-tree changes.
 - Read only the files named in the relevant section above plus their direct
   tests.
 - For backend behavior, trace route -> provider/store -> pure/domain module.
@@ -835,3 +814,21 @@ as part of normal development.
   of evidence.
 - Update this context in the same change whenever the summarized behavior stops
   being true.
+
+### Maintaining the handoff
+
+- Update SESSION_STATUS.md after meaningful work or a change of direction, and
+  before handing the task back when project state has changed. Do this as part
+  of the work, without waiting for a separate reminder.
+- Keep it a concise current snapshot: completed work, dated verification and
+  failures, unresolved issues, decisions, and the exact next task. Distinguish
+  source review, automated checks, and actual device/provider verification.
+- Replace stale statements and update TODO checkboxes rather than appending a
+  transcript or duplicating old status. Mark work complete only when verified.
+- Keep durable project conventions in AGENTS.md, operator setup in README.md,
+  and product vision in CLAUDE.md. Link between files instead of repeating them.
+- Keep dated test results, verification history, and running/stopped service
+  state in SESSION_STATUS.md. AGENTS.md holds the checks to run and lasting
+  implementation constraints; do not append session verification logs here.
+- Do not create PROJECT_CONTEXT.md or another competing handoff file. Keep
+  secrets and raw credentials out of all context files.

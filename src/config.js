@@ -11,12 +11,16 @@ export const config = {
     jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
-  // Optional providers. Absent credentials are not an error: the provider port
-  // falls back to the simulator, so a missing key degrades the demo rather
-  // than breaking it.
+  // Credentials for external providers. Selected Duffel operations require a
+  // test token; member checkout/tracking never fall back to simulated success.
   duffel: {
     accessToken: process.env.DUFFEL_ACCESS_TOKEN,
     baseUrl: process.env.DUFFEL_BASE_URL || 'https://api.duffel.com',
+    // Duffel Airways is the deterministic test carrier used by the sandbox.
+    // Keep this enabled in production deployments that are still test-mode
+    // deployments; it does not enable live booking.
+    airwaysOnly: process.env.DUFFEL_AIRWAYS_ONLY !== 'false',
+    airlineCode: process.env.DUFFEL_AIRLINE_CODE || 'ZZ',
   },
   aeroDataBox: {
     rapidApiKey: process.env.RAPIDAPI_KEY,
@@ -32,7 +36,7 @@ export const config = {
     // Set either to 'sabre'/'simulator' to swap back without touching code.
     search: process.env.SEARCH_PROVIDER || 'duffel',
     booking: process.env.BOOKING_PROVIDER || 'duffel',
-    status: process.env.STATUS_PROVIDER || 'simulator',
+    status: process.env.STATUS_PROVIDER || 'duffel',
   },
 
   // The member's autonomy limit. Currency must match what the active search

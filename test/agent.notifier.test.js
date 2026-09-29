@@ -123,3 +123,18 @@ test('it falls back to the ranking only when nothing was booked', () => {
   const msg = composeMemberMessage(recovery({ execution: { status: STATUS.RECOVERED } }));
   assert.match(msg.body, /DL742/);
 });
+
+test('uncertain order asks for a status check without claiming a rebooking or another purchase', () => {
+  const msg = composeMemberMessage(recovery({ execution: { status: STATUS.REVIEW_REQUIRED, detail: 'Order lookup failed.' } }));
+  assert.equal(msg.severity, 'ACTION_REQUIRED');
+  assert.match(msg.body, /original ticket has not been released/);
+  assert.match(msg.body, /paused further purchases/);
+  assert.deepEqual(msg.actions, ['Check booking status']);
+  assert.doesNotMatch(msg.body, /already rebooked|Fare|within your limits/);
+});
+
+test('failed dependent changes remain visible as an open item after a confirmed flight', () => {
+  const msg = composeMemberMessage(recovery({ dependents: [{ action: 'SHIFT_HOTEL', outcome: 'FAILED' }] }));
+  assert.equal(msg.severity, 'REBOOKED_WITH_QUESTION');
+  assert.match(msg.body, /hotel change could not be completed/);
+});

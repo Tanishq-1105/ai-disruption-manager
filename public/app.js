@@ -14,10 +14,16 @@ const els = {
   runRecovery: document.getElementById('run-recovery'),
   recoveryStatus: document.getElementById('recovery-status'),
   recoveryOutput: document.getElementById('recovery-output'),
+  memberAirline: document.getElementById('member-airline'),
+  memberFlight: document.getElementById('member-flight'),
+  memberFind: document.getElementById('member-find'),
+  memberBookings: document.getElementById('member-bookings'),
 };
 
 let currentTripId = null;
 let pollTimer = null;
+let memberQuery = null;
+let memberTripIds = [];
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -244,6 +250,60 @@ async function delayFlight(nodeId, minutes) {
   } catch (err) {
     setStatus('error', err.message);
   }
+
+  function renderMemberBookings(payload) {
+    if (!payload.results.length) {
+      els.memberBookings.innerHTML = '<p class="empty-state">No confirmed sandbox bookings found for this flight.</p>';
+      return;
+    }
+    const actions = `<div class="member-actions">
+      <button class="btn btn-small btn-warning" data-action="member-cancel">Simulate cancellation for all ${payload.count} passenger(s)</button>
+      <button class="btn btn-small" data-action="member-delay">Simulate 90-minute delay for all</button>
+    </div>`;
+    els.memberBookings.innerHTML = actions + payload.results.map((trip) => `
+      <div class="node-card">
+        <div class="node-head"><span class="type-badge type-FLIGHT">PASSENGER</span><span class="status-badge status-CONFIRMED">${trip.status}</span></div>
+        <div class="node-title">${trip.passengerName || 'Passenger'} · ${trip.flight.flightNumber}</div>
+        <div class="node-meta">${trip.flight.origin} → ${trip.flight.destination} · ${fmtTime(trip.flight.departureTime)} · ${trip.bookingReference || trip.orderId}</div>
+      </div>`).join('');
+  }
+
+  async function findMemberBookings() {
+    const airline = els.memberAirline.value.trim().toUpperCase();
+    const flightNumber = els.memberFlight.value.trim().toUpperCase();
+    try {
+      const payload = await api(`/simulator/member-bookings?airline=${encodeURIComponent(airline)}&flightNumber=${encodeURIComponent(flightNumber)}`);
+      memberQuery = payload.query;
+      memberTripIds = payload.results.map((trip) => trip.id);
+      renderMemberBookings(payload);
+      showToast(`Found ${payload.count} confirmed passenger(s).`);
+    } catch (err) {
+      setStatus('error', err.message);
+    }
+  }
+
+  async function disruptMemberBookings(type, minutes) {
+    if (!memberQuery) return;
+    try {
+      const result = await api('/simulator/member-bookings/disrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...memberQuery, type, minutes }),
+      });
+      memberTripIds = result.affected.map((trip) => trip.memberTripId);
+      showToast(`${result.affectedCount} passenger(s) affected.`);
+      els.memberBookings.insertAdjacentHTML('afterbegin',
+        '<div class="member-actions"><button class="btn btn-small btn-primary" data-action="member-recover">Recover all affected passengers</button></div>');
+      if (result.affected[0]) {
+        currentTripId = result.affected[0].simulatorTripId;
+        els.tripIdLabel.textContent = currentTripId;
+        await refresh();
+        startPolling();
+      }
+    } catch (err) {
+      setStatus('error', err.message);
+    }
+  }
 }
 
 function outcomeClass(outcome) {
@@ -366,6 +426,7 @@ els.seedDemo.addEventListener('click', seedDemo);
 els.runRecovery.addEventListener('click', runRecovery);
 els.failNext.addEventListener('click', forceFailNext);
 els.refreshNow.addEventListener('click', refresh);
+els.memberFind.addEventListener('click', findMemberBookings);
 
 els.tripNodes.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
@@ -373,4 +434,27 @@ els.tripNodes.addEventListener('click', (e) => {
   const { action, id, minutes } = btn.dataset;
   if (action === 'cancel') cancelFlight(id);
   if (action === 'delay') delayFlight(id, Number(minutes));
+  if (action === 'member-cancel') disruptMemberBookings('CANCELLED');
+  if (action === 'member-delay') disruptMemberBookings('DELAYED', 90);
+  if (action === 'member-recover') recoverMemberBookings();
 });
+
+async function recoverMemberBookings() {
+  if (!memberQuery || memberTripIds.length === 0) return;
+  try {
+    const result = await api('/simulator/member-bookings/recover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...memberQuery, memberTripIds }),
+    });
+    const recovered = result.results.filter((entry) => entry.status.startsWith('RECOVERED')).length;
+    showToast(`${recovered} passenger recovery run(s) completed.`);
+    els.memberBookings.insertAdjacentHTML('afterbegin',
+      `<div class="member-recovery-results"><h3>Batch recovery results</h3>${result.results.map((entry) =>
+        `<div class="attempt-row"><strong>${entry.passengerName || entry.memberTripId}</strong> · ${entry.status}${
+          entry.detail ? ` · ${entry.detail}` : ''}</div>`).join('')}</div>`);
+    await refresh();
+  } catch (err) {
+    setStatus('error', err.message);
+  }
+}

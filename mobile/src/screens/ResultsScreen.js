@@ -136,6 +136,7 @@ export default function ResultsScreen({ route, navigation }) {
         <Text style={styles.resultMeta}>
           {visible.length} result{visible.length === 1 ? '' : 's'}
           {source === 'mock' ? ' · sample data' : ''}
+          {source === 'duffel' ? ' · Duffel sandbox' : ''}
         </Text>
       </View>
 

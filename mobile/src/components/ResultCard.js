@@ -6,7 +6,7 @@ const LONG_PRESS_MS = 2200;
 
 // Wraps a result row (FlightItem/HotelItem/CabItem) with the interaction the
 // rest of the OTA-style flow needs: a short tap opens full details, a ~2s
-// hold grows the card and offers a shortcut straight to the (demo) booking screen.
+// hold grows the card and offers a shortcut straight to booking review.
 export function ResultCard({ item, category, config, navigation }) {
   const scale = useRef(new Animated.Value(1)).current;
   const longPressFired = useRef(false);

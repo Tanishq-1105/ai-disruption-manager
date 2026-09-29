@@ -3,6 +3,11 @@
 > This file gives an AI coding assistant (e.g. Claude in VS Code) the context it
 > needs to work on this project. Read it before making changes.
 
+For current status and the next task, read [SESSION_STATUS.md](./SESSION_STATUS.md)
+and [AGENTS.md](./AGENTS.md). This file contains the original product vision;
+its PostgreSQL/Redis/LangGraph architecture is still a target, not the current
+implementation. The mobile app now uses Expo SDK 57.
+
 ## What this project is
 
 **Autonomous Travel-Disruption Concierge** — an agent for a card company (American
@@ -21,9 +26,10 @@ It goes beyond apps that only *announce* a disruption — it *acts* in real time
 The system splits into two halves behind a single swappable interface
 (Ports & Adapters / Hexagonal architecture):
 
-- **Search / information (real):** flight data comes live from **Duffel**
-  (default) or **Sabre** (`SEARCH_PROVIDER=sabre`). This is the "looking" half.
-  Duffel is the default because this Sabre account only has data for one route.
+- **Search / information:** flight offers come from **Duffel test mode**
+  (default) or **Sabre** (`SEARCH_PROVIDER=sabre`). Duffel sandbox fares and
+  schedules are test data. Duffel is the default because this Sabre account
+  only has data for one route.
 - **Actions:** the cancellation and injected failures come from a **self-built
   simulator** we control. Booking now runs against **Duffel's sandbox** by
   default (`BOOKING_PROVIDER=duffel`), which creates real test orders with real

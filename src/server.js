@@ -9,6 +9,8 @@ import simulatorRouter from './routes/simulator.js';
 import authRouter from './routes/auth.js';
 import trackingRouter from './routes/tracking.js';
 import historyRouter from './routes/history.js';
+import bookingRouter from './routes/bookings.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, '..', 'public');
@@ -29,11 +31,20 @@ app.get('/api', (req, res) => {
       'GET /search/cabs',
       'GET /tracking/:flightNumber',
       'GET /history',
+      'POST /bookings/quote',
+      'POST /bookings',
+      'GET /trips',
+      'GET /trips/:id',
+      'GET /trips/:id/tracking',
+      'POST /trips/:id/simulate-disruption',
       'POST /simulator/demo/seed',
       'POST /simulator/trips/:tripId/seed',
       'POST /simulator/trips/:tripId/nodes/:nodeId/cancel',
       'POST /simulator/trips/:tripId/flights/:flightId/delay',
       'POST /simulator/bookings/fail-next',
+      'GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123',
+      'POST /simulator/member-bookings/disrupt',
+      'POST /simulator/member-bookings/recover',
       'GET /simulator/trips/:tripId/analyse',
       'GET /simulator/state',
     ],
@@ -45,14 +56,11 @@ app.use('/auth', authRouter);
 app.use('/search', searchRouter);
 app.use('/tracking', trackingRouter);
 app.use('/history', historyRouter);
+app.use(bookingRouter);
 app.use('/simulator', simulatorRouter);
 app.use(express.static(publicDir));
 
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message });
-});
+app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`Travel-Disruption Concierge backend listening on :${config.port}`);

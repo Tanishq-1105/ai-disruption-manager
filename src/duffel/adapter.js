@@ -5,27 +5,17 @@
 // passengers or two-step cancellations; all of that lives here.
 
 import * as duffel from './client.js';
+import { config } from '../config.js';
 import { normalizeDuffelOffers, normalizeSeatMap } from '../normalize/duffelFlights.js';
 
-// Test-mode passenger. Real member details would come from the account record;
-// this is a sandbox that books nothing real, so a fixed identity is honest and
-// keeps the demo reproducible.
-// Verified live 2026-08-25: Duffel's `Idempotency-Key` header does NOT return
-// the original order on a repeat POST /air/orders. It answers
-// 422 offer_request_already_booked instead.
-//
-// That is a SAFE failure — no double charge — but it is the wrong shape for
-// this agent. The executor reads a throw as "this candidate failed" and moves
-// to the next one, so a retried network call would book a DIFFERENT flight
-// rather than returning the booking that already exists. The project invariant
-// is that a retry cannot cause a second booking, so the adapter enforces
-// idempotency itself rather than trusting the vendor to.
-//
-// Process-local, like the simulator's map: it survives retries within a run,
-// which is the window a network retry actually occupies.
+// Duffel's order idempotency header does not return the original order on a
+// repeat POST. Cache in-flight promises, returned orders and ambiguous errors
+// locally; metadata allows read-only reconciliation after a lost response.
+// Durable recovery claims remain separate work before member-trip integration.
 const ordersByIdempotencyKey = new Map();
 
-const ALREADY_BOOKED = new Set(['offer_request_already_booked', 'offer_no_longer_available']);
+const ALREADY_BOOKED = new Set(['offer_request_already_booked', 'offer_already_booked']);
+const requestOptions = () => ({ signal: AbortSignal.timeout(30_000) });
 
 const TEST_PASSENGER = {
   title: 'mr',
@@ -41,82 +31,103 @@ export async function searchFlights({ origin, destination, departuredate, cabinC
   const result = await duffel.createOfferRequest({
     origin, destination, departureDate: departuredate, cabinClass,
   });
-  return normalizeDuffelOffers(result?.offers ?? []);
+  return normalizeDuffelOffers(result?.offers ?? [])
+    .filter((offer) => !config.duffel.airwaysOnly || offer.airline === config.duffel.airlineCode);
 }
 
 export async function getSeatMap(offerId) {
   return normalizeSeatMap(await duffel.getSeatMap(offerId));
 }
 
-/**
- * Books one option. Returns the shape the executor expects — crucially a
- * `status` it can check before releasing anything.
- */
-export async function bookFlight({ tripId, option, idempotencyKey }) {
+/** Refresh before policy is evaluated; bookFlight consumes this exact quote. */
+export async function prepareFlight({ option }) {
   const offerId = option?.offerId ?? option?.id;
-  if (!offerId) throw new Error('option has no Duffel offer id; it did not come from a Duffel search');
-
-  // Answer a retry from what we already bought, before touching the API.
-  if (idempotencyKey && ordersByIdempotencyKey.has(idempotencyKey)) {
-    return ordersByIdempotencyKey.get(idempotencyKey);
+  if (!offerId) throw new Error('option has no Duffel offer id');
+  const offer = await duffel.getOffer(offerId, requestOptions());
+  const [refreshed] = normalizeDuffelOffers([offer]);
+  if (offer.id !== offerId || !refreshed || offer.slices?.length !== 1
+      || (config.duffel.airwaysOnly && refreshed.airline !== config.duffel.airlineCode)
+      || offer.passengers?.length !== 1 || !offer.passengers[0].id
+      || typeof offer.total_amount !== 'string' || !/^\d+(?:\.\d{1,4})?$/.test(offer.total_amount)
+      || !/^[A-Z]{3}$/.test(offer.total_currency)
+      || !Number.isFinite(Date.parse(offer.expires_at)) || Date.parse(offer.expires_at) <= Date.now()) {
+    throw new Error('Duffel offer is expired or has no usable itinerary, passenger or fare');
   }
+  return { option: refreshed, passengerId: offer.passengers[0].id,
+    amount: offer.total_amount, currency: offer.total_currency, expiresAt: offer.expires_at };
+}
 
-  // Re-fetch the offer for its passenger id, and because a stale offer must
-  // fail here rather than halfway through creating an order.
-  const offer = await duffel.getOffer(offerId);
-  const passengerId = offer?.passengers?.[0]?.id;
-  if (!passengerId) throw new Error(`Duffel offer ${offerId} has no passenger to book`);
+function orderBooking(order, { tripId, option } = {}) {
+  const [itinerary] = normalizeDuffelOffers([{ ...order, id: order.offer_id ?? option?.id }]);
+  return {
+    id: order.id, tripId,
+    option: itinerary ?? option,
+    status: order.cancelled_at ? 'CANCELLED'
+      : order.booking_reference && order.payment_status?.awaiting_payment === false ? 'CONFIRMED' : 'PENDING',
+    bookingReference: order.booking_reference ?? null,
+    total: { amount: typeof order.total_amount === 'string' && /^\d+(?:\.\d{1,4})?$/.test(order.total_amount)
+      ? Number(order.total_amount) : NaN, currency: order.total_currency },
+    createdAt: order.created_at ?? new Date().toISOString(), provider: 'duffel',
+  };
+}
 
+/** Cache in-flight and ambiguous results as well as completed orders. */
+export async function bookFlight(request, { beforeBooking } = {}) {
+  const { idempotencyKey } = request;
+  if (!idempotencyKey) throw Object.assign(new Error('Booking requires an idempotency key'), { bookingOutcome: 'NOT_CREATED' });
+  if (ordersByIdempotencyKey.has(idempotencyKey)) return ordersByIdempotencyKey.get(idempotencyKey);
+  const operation = createBooking(request, beforeBooking);
+  ordersByIdempotencyKey.set(idempotencyKey, operation);
+  try { return await operation; }
+  catch (error) {
+    // Only a definitive rejection allows another attempt. A lost response is
+    // retained so neither this key nor the executor's fallback can purchase again.
+    if (error.bookingOutcome === 'NOT_CREATED') ordersByIdempotencyKey.delete(idempotencyKey);
+    throw error;
+  }
+}
+
+async function createBooking({ tripId, option, prepared, idempotencyKey }, beforeBooking) {
+  let quote;
+  try {
+    beforeBooking?.();
+    quote = prepared ?? await prepareFlight({ option });
+    if (quote.option.id !== (option.offerId ?? option.id) || Date.parse(quote.expiresAt) <= Date.now()) {
+      throw new Error('Prepared offer expired or does not match the selected flight');
+    }
+  } catch (error) {
+    error.bookingOutcome = 'NOT_CREATED';
+    throw error;
+  }
   let order;
   try {
     order = await duffel.createOrder({
-      offerId,
-      amount: offer.total_amount,
-      currency: offer.total_currency,
-      passengerId,
-      passenger: TEST_PASSENGER,
-      idempotencyKey,
-    });
-  } catch (err) {
-    // Duffel telling us this offer request is already booked means the seat is
-    // secured — surfacing that as a failure would send the executor off to buy
-    // a second, different ticket. Return what we hold instead.
-    if (ALREADY_BOOKED.has(err.duffelCode) && idempotencyKey && ordersByIdempotencyKey.has(idempotencyKey)) {
-      return ordersByIdempotencyKey.get(idempotencyKey);
-    }
-    throw err;
+      offerId: quote.option.offerId, amount: quote.amount, currency: quote.currency,
+      passengerId: quote.passengerId, passenger: TEST_PASSENGER, idempotencyKey,
+      metadata: { tripshield_recovery_key: idempotencyKey },
+    }, requestOptions());
+  } catch (error) {
+    error.bookingOutcome = [400, 401, 402, 403, 404, 410, 422].includes(error.status)
+      && !ALREADY_BOOKED.has(error.duffelCode) ? 'NOT_CREATED' : 'UNKNOWN';
+    throw error;
   }
-
-  const booking = {
-    id: order.id,
-    tripId,
-    option,
-    // Duffel returns a booking reference only once the order is real, so its
-    // presence is what "confirmed" means here.
-    status: order.booking_reference ? 'CONFIRMED' : 'PENDING',
-    bookingReference: order.booking_reference ?? null,
-    total: { amount: Number(order.total_amount), currency: order.total_currency },
-    createdAt: order.created_at ?? new Date().toISOString(),
-    provider: 'duffel',
-  };
-
-  if (idempotencyKey) ordersByIdempotencyKey.set(idempotencyKey, booking);
-  return booking;
+  if (!order?.id) throw Object.assign(new Error('Order creation returned no identifier'), { bookingOutcome: 'UNKNOWN' });
+  return orderBooking(order, { tripId, option: quote.option });
 }
 
 export function _resetIdempotencyForTests() {
   ordersByIdempotencyKey.clear();
 }
 
-/** Independent confirmation, so "confirm before release" can be verified. */
+/** Independent read: a reference alone does not establish that payment completed. */
 export async function getBooking(orderId) {
-  const order = await duffel.getOrder(orderId);
-  return {
-    id: order.id,
-    status: order.cancelled_at ? 'CANCELLED' : 'CONFIRMED',
-    bookingReference: order.booking_reference ?? null,
-    provider: 'duffel',
-  };
+  return orderBooking(await duffel.getOrder(orderId, requestOptions()));
+}
+
+export async function findRecoveryBooking({ option, idempotencyKey }) {
+  const orders = await duffel.listOrdersForOffer(option.offerId ?? option.id, requestOptions());
+  const matches = orders.filter(order => order.metadata?.tripshield_recovery_key === idempotencyKey);
+  return matches.length === 1 ? orderBooking(matches[0]) : null;
 }
 
 export async function cancelBooking(orderId) {

@@ -15,8 +15,8 @@ import ResultsScreen from './src/screens/ResultsScreen.js';
 import ItemDetailsScreen from './src/screens/ItemDetailsScreen.js';
 import BookingScreen from './src/screens/BookingScreen.js';
 import TripsScreen from './src/screens/TripsScreen.js';
+import TripDetailsScreen from './src/screens/TripDetailsScreen.js';
 import TrackingScreen from './src/screens/TrackingScreen.js';
-import HistoryScreen from './src/screens/HistoryScreen.js';
 import YouScreen from './src/screens/YouScreen.js';
 import LoginScreen from './src/screens/LoginScreen.js';
 import SignupScreen from './src/screens/SignupScreen.js';
@@ -39,15 +39,15 @@ function HomeStackScreen() {
       <HomeStack.Screen name="SearchHome" component={SearchScreen} options={{ title: 'Search' }} />
       <HomeStack.Screen name="Results" component={ResultsScreen} options={{ title: 'Results' }} />
       <HomeStack.Screen name="ItemDetails" component={ItemDetailsScreen} options={{ title: 'Details' }} />
-      <HomeStack.Screen name="Booking" component={BookingScreen} options={{ title: 'Book (demo)' }} />
+      <HomeStack.Screen name="Booking" component={BookingScreen} options={{ title: 'Review & book' }} />
+      <HomeStack.Screen name="Login" component={LoginScreen} options={{ title: 'Log in' }} />
+      <HomeStack.Screen name="Signup" component={SignupScreen} options={{ title: 'Sign up' }} />
     </HomeStack.Navigator>
   );
 }
 
-// Trips, History, and You all sit behind the same auth gate — signed-out
-// users land on AuthLandingScreen (with tab-specific copy) instead of three
-// near-duplicate gated stacks.
-function makeGatedStackScreen(Stack, ScreenComponent, screenName, authParams) {
+// Each nested screen has a distinct name from its parent tab.
+function makeGatedStackScreen(Stack, ScreenComponent, screenName, authParams, DetailsComponent) {
   return function GatedStackScreen() {
     const { user, loading } = useAuth();
     if (loading) return null;
@@ -55,7 +55,10 @@ function makeGatedStackScreen(Stack, ScreenComponent, screenName, authParams) {
     return (
       <Stack.Navigator screenOptions={stackScreenOptions}>
         {user ? (
-          <Stack.Screen name={screenName} component={ScreenComponent} options={{ headerShown: false }} />
+          <>
+            <Stack.Screen name={screenName} component={ScreenComponent} options={{ headerShown: false }} />
+            {DetailsComponent ? <Stack.Screen name="TripDetails" component={DetailsComponent} options={{ title: 'Your trip' }} /> : null}
+          </>
         ) : (
           <>
             <Stack.Screen
@@ -74,28 +77,27 @@ function makeGatedStackScreen(Stack, ScreenComponent, screenName, authParams) {
 }
 
 const TripsStack = createNativeStackNavigator();
-const TripsStackScreen = makeGatedStackScreen(TripsStack, TripsScreen, 'Trips', {
+const TripsStackScreen = makeGatedStackScreen(TripsStack, TripsScreen, 'ProtectedTrips', {
   heading: 'Sign in to see your trips',
-  subheading: 'Trips you book through TripShield — and the protection watching them — show up here.',
-});
-
-const HistoryStack = createNativeStackNavigator();
-const HistoryStackScreen = makeGatedStackScreen(HistoryStack, HistoryScreen, 'History', {
-  heading: 'Sign in to see your history',
-  subheading: 'Your past flight, hotel, and cab searches show up here once you’re signed in.',
-});
+  subheading: 'Your confirmed sandbox flight bookings are saved to your account here.',
+}, TripDetailsScreen);
 
 const YouStack = createNativeStackNavigator();
-const YouStackScreen = makeGatedStackScreen(YouStack, YouScreen, 'You', {
+const YouStackScreen = makeGatedStackScreen(YouStack, YouScreen, 'Profile', {
   heading: 'Sign in to set your limits',
-  subheading: 'Autonomy limits control what the agent may do without asking you first.',
+  subheading: 'Save your preferred autonomy limits on this device. They are not connected to trip recovery yet.',
+});
+
+const TrackStack = createNativeStackNavigator();
+const TrackStackScreen = makeGatedStackScreen(TrackStack, TrackingScreen, 'FlightTracking', {
+  heading: 'Sign in to track your trips',
+  subheading: 'Check your Duffel bookings and airline-reported schedule changes.',
 });
 
 const TAB_ICONS = {
   HomeTab: ['home', 'home-outline'],
   Trips: ['git-network', 'git-network-outline'],
   Track: ['locate', 'locate-outline'],
-  HistoryTab: ['time', 'time-outline'],
   You: ['person-circle', 'person-circle-outline'],
 };
 
@@ -117,8 +119,7 @@ function RootTabs() {
     >
       <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ title: 'Home' }} />
       <Tab.Screen name="Trips" component={TripsStackScreen} />
-      <Tab.Screen name="Track" component={TrackingScreen} />
-      <Tab.Screen name="HistoryTab" component={HistoryStackScreen} options={{ title: 'History' }} />
+      <Tab.Screen name="Track" component={TrackStackScreen} />
       <Tab.Screen name="You" component={YouStackScreen} />
     </Tab.Navigator>
   );

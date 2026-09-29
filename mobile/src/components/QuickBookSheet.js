@@ -3,7 +3,7 @@ import { colors, spacing, radius } from '../theme/index.js';
 import { Eyebrow, Button } from './ui/index.js';
 
 // The popup a long-press on a result card opens — a shortcut past the full
-// details screen straight to the (demo) booking flow.
+// details screen straight to booking review.
 export function QuickBookSheet({ visible, item, config, onClose, onViewDetails, onBook }) {
   if (!item) return null;
   const ItemComponent = config.ItemComponent;

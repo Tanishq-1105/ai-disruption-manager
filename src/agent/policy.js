@@ -128,7 +128,7 @@ export function evaluateFlightChange({ option, original, policy = DEFAULT_POLICY
 // timezone than the original, and the simulator and Sabre write ISO
 // differently.
 export function arrivalDelayMinutes(option, original) {
-  const a = toUtcMinutes(option?.arrivalTime, option?.arrivalOffsetHours);
+  const a = toUtcMinutes(option?.arrivalTime, option?.segments?.at(-1)?.arrivalOffsetHours ?? option?.arrivalOffsetHours);
   const b = toUtcMinutes(original?.arrivalTime, original?.arrivalOffsetHours);
   if (a === null || b === null) return null;
   return a - b;

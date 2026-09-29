@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { colors, spacing, radius, typography } from '../theme/index.js';
 import { Button } from '../components/ui/index.js';
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,6 +17,7 @@ export default function LoginScreen({ navigation }) {
     setSubmitting(true);
     try {
       await login(email, password);
+      if (route.params?.returnTo === 'Booking') navigation.popTo('Booking');
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -52,7 +53,7 @@ export default function LoginScreen({ navigation }) {
 
         <Button label={submitting ? 'Logging in…' : 'Log in'} onPress={submit} loading={submitting} style={styles.button} />
 
-        <Pressable onPress={() => navigation.navigate('Signup')}>
+        <Pressable onPress={() => navigation.navigate('Signup', route.params)}>
           <Text style={styles.link}>Don't have an account? Sign up</Text>
         </Pressable>
       </View>

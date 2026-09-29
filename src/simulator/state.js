@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { toUtcMinutes } from '../normalize/plausibility.js';
+import { HttpError } from '../errors.js';
 
 // In-memory only — this is the "doing" half CLAUDE.md describes: cancellation,
 // seat scarcity, booking, and injected failures, all under our control since
@@ -15,17 +17,20 @@ let forceNextBookingFailure = false;
 
 function requireTrip(tripId) {
   const trip = trips.get(tripId);
-  if (!trip) throw new Error(`Unknown trip ${tripId}`);
+  if (!trip) throw new HttpError(404, 'TRIP_NOT_FOUND', `Unknown trip ${tripId}`);
   return trip;
 }
 
 function requireNode(tripId, nodeId) {
   const node = requireTrip(tripId).nodes.find((n) => n.id === nodeId);
-  if (!node) throw new Error(`Unknown node ${nodeId} on trip ${tripId}`);
+  if (!node) throw new HttpError(404, 'NODE_NOT_FOUND', `Unknown node ${nodeId} on trip ${tripId}`);
   return node;
 }
 
 export function seedTrip(tripId, nodes) {
+  if (!Array.isArray(nodes) || nodes.some(node => !node || typeof node.id !== 'string' || !node.type)) {
+    throw new HttpError(400, 'INVALID_NODES', 'nodes must be an array of nodes with id and type');
+  }
   // Seeding is a fresh start for this trip, so clear any bookings and
   // idempotency keys it left behind. Without this a second demo run reuses the
   // first run's keys, bookFlight short-circuits to the cached booking, and the
@@ -78,7 +83,8 @@ export function cancelNode(tripId, nodeId) {
 // leg's departure.
 export function delayFlight(tripId, flightId, minutes) {
   const node = requireNode(tripId, flightId);
-  if (node.type !== 'FLIGHT') throw new Error(`Node ${flightId} is not a FLIGHT`);
+  if (node.type !== 'FLIGHT') throw new HttpError(400, 'INVALID_FLIGHT', `Node ${flightId} is not a FLIGHT`);
+  if (!Number.isFinite(minutes) || minutes < 0) throw new HttpError(400, 'INVALID_DELAY', 'minutes must be a non-negative number');
   node.delayMinutes = minutes;
   node.projectedArrival = new Date(
     new Date(node.scheduledArrival).getTime() + minutes * 60_000
@@ -93,6 +99,15 @@ export function setForceNextBookingFailure(value) {
   forceNextBookingFailure = value;
 }
 
+// Shared through the provider port so the same control works with Duffel.
+// Adapters call this after returning any cached idempotency result.
+export function failBookingIfArmed() {
+  if (forceNextBookingFailure) {
+    forceNextBookingFailure = false;
+    throw Object.assign(new Error('Simulated booking failure'), { bookingOutcome: 'NOT_CREATED' });
+  }
+}
+
 // Every mutating booking request carries an idempotency key so a network
 // retry can never cause a double booking.
 export function bookFlight({ tripId, option, idempotencyKey }) {
@@ -100,10 +115,7 @@ export function bookFlight({ tripId, option, idempotencyKey }) {
     return bookings.get(idempotencyResults.get(idempotencyKey));
   }
 
-  if (forceNextBookingFailure) {
-    forceNextBookingFailure = false;
-    throw new Error('Simulated booking failure');
-  }
+  failBookingIfArmed();
 
   const booking = {
     id: randomUUID(),
@@ -127,11 +139,60 @@ export function adjustNode({ tripId, nodeId, action }) {
   return node;
 }
 
+// Keep the graph pointed at the ticket the member now holds. Old delay fields
+// describe the replaced flight and must not affect its replacement's links.
+export function replaceFlight({ tripId, nodeId, booking }) {
+  const node = requireNode(tripId, nodeId);
+  if (node.type !== 'FLIGHT') throw new Error(`Node ${nodeId} is not a FLIGHT`);
+  if (!booking?.id || booking.status !== 'CONFIRMED' || !booking.option) {
+    throw new Error('A confirmed replacement booking is required');
+  }
+
+  const option = booking.option;
+  const departure = toUtcMinutes(
+    option.departureTime, option.segments?.[0]?.departureOffsetHours ?? option.departureOffsetHours,
+  );
+  const arrival = toUtcMinutes(
+    option.arrivalTime, option.segments?.at(-1)?.arrivalOffsetHours ?? option.arrivalOffsetHours,
+  );
+  if (departure === null || arrival === null) {
+    throw new Error('Replacement flight has unusable schedule times');
+  }
+
+  Object.assign(node, {
+    status: 'CONFIRMED',
+    bookingId: booking.id,
+    bookingReference: booking.bookingReference ?? null,
+    origin: option.origin,
+    destination: option.destination,
+    airline: option.airline,
+    flightNumber: option.flightNumber,
+    cabin: option.cabin,
+    price: structuredClone(booking.total ?? option.price),
+    stops: option.stops,
+    durationMinutes: option.durationMinutes,
+    segments: structuredClone(option.segments ?? []),
+    scheduledDeparture: new Date(departure * 60_000).toISOString(),
+    scheduledArrival: new Date(arrival * 60_000).toISOString(),
+  });
+  delete node.delayMinutes;
+  delete node.projectedArrival;
+  delete node.projectedDeparture;
+  bookings.set(booking.id, { ...booking, tripId, nodeId });
+  return node;
+}
+
 export function cancelBooking(bookingId) {
   const booking = bookings.get(bookingId);
   if (!booking) throw new Error(`Unknown booking ${bookingId}`);
   booking.status = 'CANCELLED';
   return booking;
+}
+
+export function getBooking(bookingId) {
+  const booking = bookings.get(bookingId);
+  if (!booking) throw new Error(`Unknown booking ${bookingId}`);
+  return structuredClone({ ...booking, total: booking.total ?? booking.option?.price });
 }
 
 export function getState() {

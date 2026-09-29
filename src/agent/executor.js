@@ -8,7 +8,8 @@
 //
 // This build books directly with no seat-hold step, so that ordering is the
 // single thing standing between a member and having no ticket at all. If a
-// booking fails, the old ticket is untouched and the next candidate is tried.
+// booking is definitively rejected, the old ticket is untouched and the next
+// candidate is tried. An unknown outcome pauses further purchases.
 //
 // Three further safety positions, each encoded and tested below:
 //
@@ -22,6 +23,7 @@
 //   is a stranded member. We take the billing problem and flag it.
 
 import { evaluateFlightChange, DEFAULT_POLICY, DECISION, AUTONOMY } from './policy.js';
+import { viabilityIssues, arrivalUtcMinutes, departureUtcMinutes } from './options.js';
 
 export const OUTCOME = {
   BOOKED: 'BOOKED',
@@ -30,6 +32,7 @@ export const OUTCOME = {
   OLD_RELEASED: 'OLD_RELEASED',
   OLD_RELEASE_FAILED: 'OLD_RELEASE_FAILED',
   NOT_CONFIRMED: 'NOT_CONFIRMED',
+  PRECHECK_FAILED: 'PRECHECK_FAILED',
 };
 
 export const STATUS = {
@@ -37,6 +40,7 @@ export const STATUS = {
   RECOVERED_NEEDS_ATTENTION: 'RECOVERED_NEEDS_ATTENTION',
   EXHAUSTED: 'EXHAUSTED',
   NOTHING_AUTHORISED: 'NOTHING_AUTHORISED',
+  REVIEW_REQUIRED: 'REVIEW_REQUIRED',
 };
 
 // Deterministic and stable: retrying the same attempt reuses the same key, so
@@ -45,175 +49,173 @@ export function buildIdempotencyKey({ tripId, optionId, attempt }) {
   return `${tripId}:${optionId}:${attempt}`;
 }
 
-/**
- * Runs the recovery for one disrupted flight.
- *
- * `provider` is injected rather than imported so the agent core stays free of
- * any vendor, and so tests can drive failure paths without a network.
- */
-export async function executeRecovery({
-  tripId,
-  original,
-  ranked = [],
-  decision,
-  provider,
-  policy = DEFAULT_POLICY,
-  maxAttempts = 3,
-  audit = [],
-  now = () => new Date().toISOString(),
-}) {
-  const record = (entry) => {
-    // Every automatic action and the rule that authorised it, per the
-    // project's audit invariant.
-    audit.push({ at: now(), tripId, ...entry });
-    return entry;
-  };
+// Pending attempts remain attached to a recovery scope even if the next search
+// would return different offer IDs. This is process-local; member recovery must
+// use durable claims before it is connected to persisted trips.
+const pendingByProvider = new WeakMap();
+export function getPendingRecovery({ provider, scope }) {
+  return pendingByProvider.get(provider)?.get(scope) ?? null;
+}
 
-  // Phase 5 decides; Phase 6 only carries out what was authorised.
-  const flightAuthorised = decision?.actions?.some((a) => a.action === 'REBOOK_FLIGHT');
-  if (!flightAuthorised) {
-    record({
-      action: 'REBOOK_FLIGHT',
-      outcome: OUTCOME.NOT_AUTHORISED,
-      authorisedBy: decision?.decision ?? DECISION.ESCALATE,
-      detail: 'policy did not authorise an automatic rebooking',
-    });
-    return {
-      status: STATUS.NOTHING_AUTHORISED,
-      booking: null,
-      attempts: [],
-      audit,
-      escalations: decision?.escalations ?? [],
-    };
-  }
+// Only forget a completed attempt after the orchestrator has saved its ticket.
+// A later disruption of that updated flight then gets a new recovery attempt.
+export function completeRecovery({ provider, scope }) {
+  const entries = pendingByProvider.get(provider);
+  if (entries?.get(scope)?.completed) entries.delete(scope);
+}
 
-  const attempts = [];
-  const candidates = ranked.slice(0, maxAttempts);
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const option = candidates[index].option ?? candidates[index];
-    const attempt = index + 1;
-
-    // Re-check every candidate, including the first. A fallback has not been
-    // authorised just because its predecessor was.
-    const evaluation = evaluateFlightChange({ option, original, policy });
-    if (!evaluation.allowed) {
-      const detail = evaluation.violations.map((v) => v.detail).join('; ');
-      attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.NOT_AUTHORISED, detail });
-      record({
-        action: 'REBOOK_FLIGHT',
-        attempt,
-        optionId: option.id,
-        outcome: OUTCOME.NOT_AUTHORISED,
-        authorisedBy: evaluation.violations[0].rule,
-        detail,
-      });
-      continue;
-    }
-
-    const idempotencyKey = buildIdempotencyKey({ tripId, optionId: option.id, attempt });
-    let booking;
-
-    // --- step 1: book the new ticket ------------------------------------
-    try {
-      booking = await provider.bookFlight({ tripId, option, idempotencyKey });
-    } catch (err) {
-      // The old ticket has not been touched. Move to the next candidate.
-      attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.BOOKING_FAILED, detail: err.message });
-      record({
-        action: 'BOOK_NEW',
-        attempt,
-        optionId: option.id,
-        idempotencyKey,
-        outcome: OUTCOME.BOOKING_FAILED,
-        authorisedBy: 'WITHIN_LIMITS',
-        detail: err.message,
-        oldTicketRetained: true,
-      });
-      continue;
-    }
-
-    // --- step 2: confirm it before anything irreversible happens ---------
-    if (!booking || booking.status !== 'CONFIRMED') {
-      attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.NOT_CONFIRMED });
-      record({
-        action: 'BOOK_NEW',
-        attempt,
-        optionId: option.id,
-        idempotencyKey,
-        outcome: OUTCOME.NOT_CONFIRMED,
-        authorisedBy: 'WITHIN_LIMITS',
-        detail: `provider returned status ${booking?.status ?? 'none'}; old ticket retained`,
-        oldTicketRetained: true,
-      });
-      continue;
-    }
-
-    record({
-      action: 'BOOK_NEW',
-      attempt,
-      optionId: option.id,
-      bookingId: booking.id,
-      idempotencyKey,
-      outcome: OUTCOME.BOOKED,
-      authorisedBy: 'WITHIN_LIMITS',
-      detail: `confirmed ${option.flightNumber ?? option.id}`,
-    });
-
-    // --- step 3: only now release the old ticket -------------------------
-    let releaseOutcome = OUTCOME.OLD_RELEASED;
-    let releaseDetail = 'old ticket released after the new one was confirmed';
-
-    if (original?.bookingId) {
-      try {
-        await provider.cancelBooking(original.bookingId);
-      } catch (err) {
-        // Deliberately no rollback of the new booking. See the header.
-        releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
-        releaseDetail = `could not release the old ticket (${err.message}); member holds two bookings`;
-      }
-      record({
-        action: 'RELEASE_OLD',
-        attempt,
-        bookingId: original.bookingId,
-        outcome: releaseOutcome,
-        authorisedBy: 'WITHIN_LIMITS',
-        detail: releaseDetail,
-      });
-    } else {
-      releaseDetail = 'no prior booking to release';
-    }
-
-    attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.BOOKED, bookingId: booking.id });
-
-    return {
-      status: releaseOutcome === OUTCOME.OLD_RELEASE_FAILED
-        ? STATUS.RECOVERED_NEEDS_ATTENTION
-        : STATUS.RECOVERED,
-      booking,
-      option,
-      attempts,
-      audit,
-      escalations: decision?.escalations ?? [],
-    };
-  }
-
-  // Every candidate failed. The member still holds the original ticket.
-  record({
-    action: 'REBOOK_FLIGHT',
-    outcome: OUTCOME.BOOKING_FAILED,
-    authorisedBy: 'WITHIN_LIMITS',
-    detail: `all ${attempts.length} candidate(s) failed; old ticket retained`,
-    oldTicketRetained: true,
+function itinerary(option) {
+  return JSON.stringify({
+    origin: option?.origin, destination: option?.destination, cabin: option?.cabin,
+    departure: departureUtcMinutes(option), arrival: arrivalUtcMinutes(option),
+    flightNumber: option?.flightNumber, stops: option?.stops,
+    segments: option?.segments?.map(segment => ({
+      airline: segment.airline, flightNumber: segment.flightNumber,
+      origin: segment.origin, destination: segment.destination,
+    })),
   });
+}
 
-  return {
-    status: STATUS.EXHAUSTED,
-    booking: null,
-    attempts,
-    audit,
-    escalations: decision?.escalations ?? [],
+export async function executeRecovery({
+  tripId, original, ranked = [], decision, provider, policy = DEFAULT_POLICY,
+  maxAttempts = 3, audit = [], now = () => new Date().toISOString(),
+  scope = `${tripId}:${original?.bookingId ?? original?.nodeId ?? 'flight'}`,
+}) {
+  const record = entry => audit.push({ at: now(), tripId, ...entry });
+  let pending = pendingByProvider.get(provider);
+  if (!pending) { pending = new Map(); pendingByProvider.set(provider, pending); }
+  const attempts = [];
+  const result = (status, extra = {}) => ({ status, booking: null, attempts, audit,
+    escalations: decision?.escalations ?? [], ...extra });
+  const review = (entry, detail) => {
+    record({ action: 'CONFIRM_NEW', outcome: OUTCOME.NOT_CONFIRMED, authorisedBy: 'CONFIRM_BEFORE_RELEASE',
+      attempt: entry.attempt, optionId: entry.option.id, bookingId: entry.bookingId,
+      idempotencyKey: entry.idempotencyKey, detail, oldTicketRetained: true });
+    attempts.push({ attempt: entry.attempt, optionId: entry.option.id, outcome: OUTCOME.NOT_CONFIRMED, detail });
+    return result(STATUS.REVIEW_REQUIRED, { pendingBookingId: entry.bookingId ?? null, detail });
   };
+
+  async function confirmAndRelease(entry) {
+    if (entry.completed) {
+      attempts.push({ attempt: entry.attempt, optionId: entry.option.id, outcome: OUTCOME.BOOKED, bookingId: entry.bookingId });
+      return result(entry.completed.status, { booking: entry.completed.booking, option: entry.completed.booking.option });
+    }
+    let confirmed;
+    try {
+      confirmed = entry.bookingId ? await provider.getBooking(entry.bookingId)
+        : await provider.findRecoveryBooking?.({ option: entry.option, idempotencyKey: entry.idempotencyKey });
+    } catch {
+      return review(entry, 'Independent booking lookup failed; check this attempt before any further purchase.');
+    }
+    if (!confirmed?.id || (entry.bookingId && confirmed.id !== entry.bookingId)
+        || confirmed.id === original?.bookingId || confirmed.status !== 'CONFIRMED') {
+      return review(entry, 'The replacement is not independently confirmed; the original ticket and dependents are unchanged.');
+    }
+    entry.bookingId = confirmed.id;
+    if (!confirmed.option || itinerary(confirmed.option) !== itinerary(entry.option)
+        || !Number.isFinite(confirmed.total?.amount)
+        || confirmed.total.amount !== entry.option.price.amount
+        || confirmed.total.currency !== entry.option.price.currency) {
+      return review(entry, 'The confirmed order does not match the authorised fare or itinerary; review it before releasing the original.');
+    }
+    const booking = { ...confirmed, tripId, option: { ...entry.option, price: confirmed.total } };
+    record({ action: 'CONFIRM_NEW', outcome: OUTCOME.BOOKED, authorisedBy: 'CONFIRM_BEFORE_RELEASE',
+      attempt: entry.attempt, optionId: entry.option.id, bookingId: booking.id,
+      idempotencyKey: entry.idempotencyKey, detail: 'independent lookup verified the authorised order, fare and itinerary' });
+
+    if (!entry.releaseOutcome) {
+      entry.releaseOutcome = OUTCOME.OLD_RELEASED;
+      if (original?.bookingId) {
+        try {
+          const released = await provider.cancelBooking(original.bookingId);
+          if (released?.status !== 'CANCELLED') throw new Error('cancellation was not confirmed');
+        } catch {
+          entry.releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
+        }
+        record({ action: 'RELEASE_OLD', bookingId: original.bookingId, outcome: entry.releaseOutcome,
+          authorisedBy: 'CONFIRM_BEFORE_RELEASE', detail: entry.releaseOutcome === OUTCOME.OLD_RELEASED
+            ? 'old ticket released after independent confirmation'
+            : 'could not confirm release of the old ticket; member may hold two bookings' });
+      }
+    }
+    attempts.push({ attempt: entry.attempt, optionId: entry.option.id, outcome: OUTCOME.BOOKED, bookingId: booking.id });
+    entry.completed = { status: entry.releaseOutcome === OUTCOME.OLD_RELEASE_FAILED
+      ? STATUS.RECOVERED_NEEDS_ATTENTION : STATUS.RECOVERED, booking };
+    return result(entry.completed.status, { booking, option: booking.option });
+  }
+
+  // Resume only by reading an existing attempt, before policy or another search
+  // can cause a second purchase. Its original authorisation is kept in the audit.
+  const existing = pending.get(scope);
+  if (existing) return confirmAndRelease(existing);
+
+  const authorised = decision?.actions?.some(action => action.action === 'REBOOK_FLIGHT'
+    && action.autonomy === AUTONOMY.AUTO && action.rule === 'WITHIN_LIMITS' && !action.nodeId);
+  if (!authorised) {
+    record({ action: 'REBOOK_FLIGHT', outcome: OUTCOME.NOT_AUTHORISED,
+      authorisedBy: decision?.decision ?? DECISION.ESCALATE, detail: 'policy did not authorise an automatic rebooking' });
+    return result(STATUS.NOTHING_AUTHORISED);
+  }
+  if (typeof provider.prepareFlight !== 'function' || typeof provider.getBooking !== 'function') {
+    record({ action: 'REBOOK_FLIGHT', outcome: OUTCOME.NOT_AUTHORISED,
+      authorisedBy: 'PROVIDER_CAPABILITY', detail: 'provider must support refreshed quotes and independent confirmation' });
+    return result(STATUS.NOTHING_AUTHORISED);
+  }
+
+  for (const [index, candidate] of ranked.slice(0, maxAttempts).entries()) {
+    const searched = candidate.option ?? candidate;
+    const attempt = index + 1;
+    let prepared;
+    try { prepared = await provider.prepareFlight({ option: searched }); }
+    catch (error) {
+      attempts.push({ attempt, optionId: searched.id, outcome: OUTCOME.PRECHECK_FAILED, detail: error.message });
+      record({ action: 'REFRESH_OFFER', outcome: OUTCOME.PRECHECK_FAILED, attempt, optionId: searched.id,
+        authorisedBy: 'PRE_BOOKING_CHECK', detail: error.message, oldTicketRetained: true });
+      continue; // No order POST has occurred.
+    }
+    const option = prepared?.option;
+    const evaluation = evaluateFlightChange({ option, original, policy });
+    const issues = option ? viabilityIssues(option, { readyAt: original?.departureTime,
+      requiredDestination: original?.destination }) : ['provider returned no refreshed itinerary'];
+    if (option?.id !== searched.id) issues.push('refreshed offer does not match the selected offer');
+    if (original?.origin && option?.origin !== original.origin) issues.push('refreshed flight leaves from a different airport');
+    const allowed = evaluation.allowed && issues.length === 0;
+    const detail = [...evaluation.violations.map(v => v.detail), ...issues].join('; ');
+    record({ action: 'CHECK_REFRESHED_OFFER', attempt, optionId: searched.id,
+      outcome: allowed ? 'AUTHORISED' : OUTCOME.NOT_AUTHORISED,
+      authorisedBy: allowed ? 'WITHIN_LIMITS' : evaluation.violations[0]?.rule ?? 'VIABILITY',
+      detail: allowed ? `authorised refreshed fare ${option.price.amount} ${option.price.currency}` : detail,
+      oldTicketRetained: true });
+    if (!allowed) {
+      attempts.push({ attempt, optionId: searched.id, outcome: OUTCOME.NOT_AUTHORISED, detail });
+      continue;
+    }
+    const idempotencyKey = buildIdempotencyKey({ tripId, optionId: option.id, attempt });
+    const inFlight = pending.get(scope);
+    if (inFlight) return confirmAndRelease(inFlight);
+    const entry = { option, attempt, idempotencyKey };
+    pending.set(scope, entry);
+    record({ action: 'BOOK_NEW', attempt, optionId: option.id, idempotencyKey,
+      outcome: 'REQUESTED', authorisedBy: 'WITHIN_LIMITS',
+      detail: `requesting ${option.flightNumber ?? option.id} at ${option.price.amount} ${option.price.currency}` });
+    let created;
+    try { created = await provider.bookFlight({ tripId, option, prepared, idempotencyKey }); }
+    catch (error) {
+      if (error.bookingOutcome !== 'NOT_CREATED') {
+        return review(entry, 'Order creation outcome is unknown; reconcile this attempt before booking again.');
+      }
+      pending.delete(scope);
+      attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.BOOKING_FAILED, detail: error.message });
+      record({ action: 'BOOK_NEW', attempt, optionId: option.id, idempotencyKey,
+        outcome: OUTCOME.BOOKING_FAILED, authorisedBy: 'WITHIN_LIMITS', detail: error.message, oldTicketRetained: true });
+      continue;
+    }
+    entry.bookingId = created?.id;
+    return confirmAndRelease(entry);
+  }
+  record({ action: 'REBOOK_FLIGHT', outcome: OUTCOME.BOOKING_FAILED, authorisedBy: 'WITHIN_LIMITS',
+    detail: `no authorised candidate could be booked after ${attempts.length} checks; old ticket retained`, oldTicketRetained: true });
+  return result(STATUS.EXHAUSTED);
 }
 
 /**
@@ -224,6 +226,7 @@ export async function executeRecovery({
 export async function executeDependentActions({
   tripId,
   decision,
+  execution,
   provider,
   audit = [],
   now = () => new Date().toISOString(),
@@ -234,6 +237,12 @@ export async function executeDependentActions({
   );
 
   for (const action of auto) {
+    if (![STATUS.RECOVERED, STATUS.RECOVERED_NEEDS_ATTENTION].includes(execution?.status)) {
+      results.push({ ...action, outcome: 'SKIPPED', detail: 'replacement flight is not confirmed' });
+      audit.push({ at: now(), tripId, action: action.action, nodeId: action.nodeId,
+        outcome: 'SKIPPED', authorisedBy: 'FLIGHT_NOT_RECOVERED', detail: 'replacement flight is not confirmed' });
+      continue;
+    }
     const handler = provider?.adjustNode;
     if (typeof handler !== 'function') {
       results.push({ ...action, outcome: 'UNSUPPORTED' });
@@ -272,6 +281,8 @@ export function explainExecution(result) {
         + `after ${result.attempts.length} attempt(s); old ticket released`;
     case STATUS.RECOVERED_NEEDS_ATTENTION:
       return `RECOVERED but the old ticket could not be released — member holds two bookings`;
+    case STATUS.REVIEW_REQUIRED:
+      return 'NOT RECOVERED: booking outcome needs review; old ticket retained and further purchases paused';
     case STATUS.EXHAUSTED:
       return `NOT RECOVERED: ${result.attempts.length} candidate(s) failed; member keeps the original ticket`;
     default:

@@ -8,7 +8,7 @@ The card-member-facing app described in the root `CLAUDE.md` — separate from
 ```
 cd mobile
 npm install
-cp .env.example .env   # set EXPO_PUBLIC_API_BASE_URL to your machine's LAN IP
+cp .env.example .env   # only if missing; set API URL to your machine's LAN IP
 npx expo start
 ```
 
@@ -20,25 +20,44 @@ wrong SDK version, breaking the Expo Go connection.
 
 Scan the QR code with the **Expo Go** app on your phone (same Wi-Fi network
 as the machine running the backend). `localhost` in `.env` will not work on
-a physical device — it needs your machine's actual LAN IP (`ipconfig` on
+a physical device — it needs your machine's actual LAN IP (`hostname -I` on Ubuntu, `ipconfig` on
 Windows), because the phone is a separate device on the network making its
 own HTTP requests to your dev machine.
 
 The backend (`../`) must be running (`npm run dev` from the repo root) and
-reachable at that address before signup/search/tracking/history will work.
+reachable at that address before signup, search, booking or tracking will work.
 
 ## What's here
 
-- **Search** tab — segmented Flights/Hotels/Cabs search, submits into a
-  shared **Results** screen with filter-by-text and sort chips. Flights are
-  real Sabre data; hotels/cabs are backend-served mock data (see the root
-  `CLAUDE.md` for why).
-- **Track** tab — look up a flight by number; falls back to clearly-labeled
-  sample data if Sabre's status product isn't available (it isn't, on this
-  project's trial account).
-- **History** tab — gated behind login; shows a signed-in user's past
-  searches. Search/Track stay open to everyone — only History needs an
-  account.
+Four bottom tabs:
+
+- **Home:** public Flights/Hotels/Cabs search, results, filters, sorting and
+  details. Flights use Duffel sandbox offers; hotels/cabs use mock search data.
+  Signed-in members can still see recent searches here. No History tab.
+- **Trips:** signed-in Protected Trips saved by the backend. Refresh on focus
+  or pull; open details to see the booking reference, passenger name and fare.
+- **Track:** signed-in saved-flight selector. Calls Duffel on focus, selection
+  and manual refresh for order status and airline-initiated schedule changes.
+  No invented boarding/landed status, flight-number lookup or mock fallback.
+- **You:** signed-in account, local autonomy/notification preferences and logout.
+  These preferences do not yet govern backend recovery.
+
+Flight checkout is connected to Duffel **test orders**. Search → choose a flight
+→ Review & book → sign in if needed → **Use test passenger** → confirm. It
+supports one adult aged 18+, with passport fields when the offer requires them.
+The server refreshes the fare, requires review of changes, creates the order,
+checks it independently and automatically saves the booking in Protected Trips.
+A timeout or pending outcome offers **Check status** instead of another purchase.
+There is no real charge or usable ticket; hotel/cab checkout is not connected.
+
+From Trips, open a booking and tap **Track this trip**. Track reads the real
+Duffel sandbox order and change APIs. It does not accept changes or trigger
+recovery. Saved trips are persistent; automatic monitoring/recovery is still
+separate future work. See the root [README](../README.md) for API/setup details.
+
+After starting the backend and Expo, reload Expo Go and check all four tabs,
+checkout's sign-in return, confirmation, trip persistence and tracking refresh.
+Physical-device verification is separate from an Android bundle build.
 
 ## Structure
 
@@ -50,18 +69,31 @@ src/
   config/categories.js     drives SearchScreen fields + ResultsScreen fetch/sort/render per category
   components/               per-category result row components
   screens/                   one screen per feature
-App.js                  navigation shell (bottom tabs; History tab is a stack that swaps in Login/Signup when signed out)
+App.js                  four tabs; Trips/Track/You swap in auth when signed out
 ```
 
 ## Known environment notes
 
-- Pinned to **Expo SDK 54** (not the latest) to match the Expo Go app
-  version available on the test phone's Play Store — SDK 57's Expo Go
-  build hadn't rolled out there yet. If you upgrade Expo Go later, this can
-  move back to the latest SDK via `npx expo install expo@latest && npx expo
-  install --fix`.
-- This machine's Node.js (v20.14.0) is below what recent Expo/React Native
-  versions officially require (`>=20.19.4`) — Expo prints a warning on every
-  command. In practice Metro still boots and bundles correctly (verified:
-  the full app bundle compiles clean, no errors), but if anything odd shows
-  up, upgrading Node is the first thing to try.
+- Uses **Expo SDK 57** to match the test phone's Expo Go, following the user's
+  upgrade request on 2026-09-12. SDK 57 uses React Native 0.86 and React 19.2.3;
+  see the [versioned SDK reference](https://docs.expo.dev/versions/v57.0.0/).
+- SDK 57 requires Node.js 22.13 or newer. The Ubuntu workstation has Node.js
+  24.20.0 installed.
+- Run `npm ci` inside `mobile/` to restore the versions in the lockfile. For
+  an SDK upgrade, update Expo and align the other packages together, then check
+  the result and restart Metro with a clean cache:
+
+  ```bash
+  npx expo install 'expo@~57.0.0' --fix
+  npx expo-doctor
+  npx expo start --lan --clear
+  ```
+
+  Changing only the `expo` entry in `package.json` leaves React Native and native
+  modules on incompatible versions. Follow the
+  [upgrade guide](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/)
+  and review the release notes when moving to another SDK. This app uses Expo Go
+  and has no checked-in `android/` or `ios/` project to migrate.
+
+Current verification results and device checks are kept in
+[SESSION_STATUS.md](../SESSION_STATUS.md).

@@ -53,6 +53,22 @@
         <p class="empty-state">Cancel a flight, then click "Run recovery" to search real alternatives, score them, apply policy, and rebook safely.</p>
       </div>
     </section>
+
+    <section class="panel member-panel">
+      <div class="panel-header">
+        <h2>Member bookings</h2>
+        <span class="muted">Duffel sandbox cohort simulator</span>
+      </div>
+      <p class="muted">Find confirmed sandbox passengers on the same airline and flight, then simulate one disruption for everyone on that flight.</p>
+      <div class="member-controls">
+        <label>Airline <input id="member-airline" value="ZZ" maxlength="3" /></label>
+        <label>Flight <input id="member-flight" placeholder="ZZ123" maxlength="8" /></label>
+        <button id="member-find" class="btn btn-ghost">Find bookings</button>
+      </div>
+      <div id="member-bookings" class="member-bookings">
+        <p class="empty-state">Enter an airline and flight number to load saved sandbox bookings.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="raw-state">

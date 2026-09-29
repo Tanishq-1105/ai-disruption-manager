@@ -9,13 +9,15 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --env-file=.env.test --test test/",
+    "test": "node --env-file=.env.test --test",
     "mobile": "npm --prefix mobile start",
     "probe:sabre": "node scripts/probe-sabre.js",
     "check:plausibility": "node scripts/check-plausibility.js",
     "demo:rebook": "node scripts/demo-rebook.js",
     "probe:providers": "node scripts/probe-providers.js",
-    "demo:duffel": "node scripts/demo-duffel.js"
+    "demo:duffel": "node scripts/demo-duffel.js",
+    "smoke:member": "node scripts/smoke-member.js",
+    "smoke:recovery": "node scripts/smoke-recovery.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

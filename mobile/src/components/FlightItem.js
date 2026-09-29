@@ -5,7 +5,7 @@ export function FlightItem({ item }) {
   return (
     <View style={styles.card}>
       <View style={styles.row}>
-        <Text style={styles.title}>{item.airline} {item.flightNumber}</Text>
+        <Text style={styles.title}>{item.flightNumber || item.airline}</Text>
         <Text style={styles.price}>
           {item.price.currency} {item.price.amount ?? '—'}
         </Text>

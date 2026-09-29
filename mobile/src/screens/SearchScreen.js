@@ -82,8 +82,9 @@ export default function SearchScreen({ navigation, route }) {
           <View style={styles.noticeRow}>
             <Ionicons name="shield-checkmark-outline" size={18} color={colors.accent700} />
             <Text style={styles.noticeText}>
-              Auto-repair on this booking — if this trip is disrupted, TripShield finds and books a replacement
-              automatically, within the limits you set in You.
+              {category === 'flights'
+                ? 'Confirm a Duffel sandbox flight to save it to Protected Trips. Automatic trip recovery is not connected yet.'
+                : 'Hotel and cab results are sample listings. Booking is not connected yet.'}
             </Text>
           </View>
         </BlueprintCard>

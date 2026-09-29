@@ -136,8 +136,8 @@ export default function YouScreen() {
         </BlueprintCard>
 
         <Text style={styles.footnote}>
-          Limits apply on the next disruption, never mid-recovery. The audit trail of automatic actions will appear
-          here once the agent's execution layer is connected.
+          These preferences are saved on this device. They do not control trip recovery yet.
+          Recovery results and the audit trail will appear here once connected.
         </Text>
       </ScrollView>
     </SafeAreaView>

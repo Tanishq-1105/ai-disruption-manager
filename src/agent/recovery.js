@@ -14,8 +14,13 @@ import { detectDisruptions } from './detection.js';
 import { analyseImpact } from './impact.js';
 import { rankOptions, explainChoice } from './options.js';
 import { decide, explainDecision, DEFAULT_POLICY } from './policy.js';
-import { executeRecovery, executeDependentActions, explainExecution } from './executor.js';
+import { executeRecovery, executeDependentActions, explainExecution, getPendingRecovery, completeRecovery } from './executor.js';
 import { composeMemberMessage } from './notifier.js';
+
+// Serialise requests for the same provider/trip. A queued request reads the
+// repaired graph after its predecessor finishes, instead of buying another
+// flight from a concurrent search. Other trips can still recover independently.
+const recoveryQueues = new WeakMap();
 
 /**
  * Runs one full recovery pass over a trip.
@@ -24,7 +29,26 @@ import { composeMemberMessage } from './notifier.js';
  * normalized, already plausibility-filtered candidates. Keeping it injected
  * means this module works the same against Sabre, a mock, or a future provider.
  */
-export async function runRecovery({
+export async function runRecovery(args) {
+  const { provider, tripId } = args;
+  let queue = recoveryQueues.get(provider);
+  if (!queue) {
+    queue = new Map();
+    recoveryQueues.set(provider, queue);
+  }
+  const previous = queue.get(tripId);
+  const operation = previous
+    ? previous.catch(() => {}).then(() => runRecoveryOnce(args))
+    : runRecoveryOnce(args);
+  queue.set(tripId, operation);
+  try {
+    return await operation;
+  } finally {
+    if (queue.get(tripId) === operation) queue.delete(tripId);
+  }
+}
+
+async function runRecoveryOnce({
   tripId,
   provider,
   searchReplacements,
@@ -64,13 +88,18 @@ export async function runRecovery({
 
     // --- Phase 4: pick --------------------------------------------------
     const departureDate = String(node.scheduledDeparture).slice(0, 10);
-    const candidates = await searchReplacements({
+    const pending = getPendingRecovery({ provider, scope: node });
+    const candidates = pending ? [pending.option] : await searchReplacements({
       origin: node.origin,
       destination: node.destination,
       departureDate,
     });
 
     const original = {
+      nodeId: node.id,
+      origin: node.origin,
+      destination: node.destination,
+      departureTime: node.scheduledDeparture,
       bookingId: node.bookingId,
       airline: node.airline,
       cabin: node.cabin,
@@ -105,9 +134,23 @@ export async function runRecovery({
       maxAttempts,
       audit,
       now,
+      scope: node,
     });
 
-    const dependents = await executeDependentActions({ tripId, decision, provider, audit, now });
+    // Also attach the replacement when releasing the old ticket failed: the
+    // member still owns the confirmed new ticket and must not buy another one.
+    if (execution.booking?.status === 'CONFIRMED') {
+      await provider.replaceFlight({ tripId, nodeId: node.id, booking: execution.booking });
+      audit.push({
+        at: now(), tripId, nodeId: node.id,
+        action: 'UPDATE_FLIGHT', outcome: 'APPLIED', authorisedBy: 'WITHIN_LIMITS',
+        bookingId: execution.booking.id,
+        detail: 'trip flight updated to the confirmed replacement',
+      });
+      completeRecovery({ provider, scope: node });
+    }
+
+    const dependents = await executeDependentActions({ tripId, decision, execution, provider, audit, now });
 
     recoveries.push({
       event,
@@ -130,6 +173,8 @@ export async function runRecovery({
       execution: {
         status: execution.status,
         bookingId: execution.booking?.id ?? null,
+        pendingBookingId: execution.pendingBookingId ?? null,
+        detail: execution.detail ?? null,
         // The option that was actually booked, which is NOT necessarily the
         // top-ranked one: earlier candidates can fail and be fallen through.
         // The member's message reads from this, never from the ranking.

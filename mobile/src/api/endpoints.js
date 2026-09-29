@@ -30,12 +30,34 @@ export async function searchCabs(params) {
   return data;
 }
 
-export async function trackFlight(flightNumber) {
-  const { data } = await apiClient.get(`/tracking/${encodeURIComponent(flightNumber)}`);
+export async function trackTrip(tripId) {
+  const { data } = await apiClient.get(`/trips/${encodeURIComponent(tripId)}/tracking`);
   return data;
 }
 
 export async function getHistory() {
   const { data } = await apiClient.get('/history');
   return data.results;
+}
+
+export async function getFlightQuote(offerId) {
+  const { data } = await apiClient.post('/bookings/quote', { offerId });
+  return data.quote;
+}
+
+export async function bookFlight(quote, passenger) {
+  const { data } = await apiClient.post('/bookings', { quoteId: quote.id, version: quote.version, passenger }, {
+    headers: { 'Idempotency-Key': quote.id },
+  });
+  return data.trip;
+}
+
+export async function getTrips() {
+  const { data } = await apiClient.get('/trips');
+  return data.results;
+}
+
+export async function getTrip(id) {
+  const { data } = await apiClient.get(`/trips/${encodeURIComponent(id)}`);
+  return data.trip;
 }
