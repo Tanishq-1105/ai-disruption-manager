@@ -28,8 +28,8 @@ export const CATEGORIES = {
   flights: {
     label: 'Flights',
     searchFields: [
-      { key: 'origin', label: 'From (e.g. JFK)', autoCapitalize: 'characters' },
-      { key: 'destination', label: 'To (e.g. LAX)', autoCapitalize: 'characters' },
+      { key: 'origin', label: 'From airport' },
+      { key: 'destination', label: 'To airport' },
       { key: 'departuredate', label: 'Departure date', type: 'date', minDate: () => todayISO() },
     ],
     fetch: endpoints.searchFlights,

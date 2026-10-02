@@ -22,6 +22,9 @@ export const config = {
     airwaysOnly: process.env.DUFFEL_AIRWAYS_ONLY !== 'false',
     airlineCode: process.env.DUFFEL_AIRLINE_CODE || 'ZZ',
   },
+  googlePlaces: {
+    apiKey: process.env.GOOGLE_MAPS_API_KEY,
+  },
   aeroDataBox: {
     rapidApiKey: process.env.RAPIDAPI_KEY,
     host: process.env.AERODATABOX_HOST || 'aerodatabox.p.rapidapi.com',

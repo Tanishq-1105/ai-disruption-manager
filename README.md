@@ -33,7 +33,9 @@ npm --prefix mobile ci
 Preserve existing `.env` and `mobile/.env` files when moving from Windows. If
 either is missing, copy its corresponding `.env.example` and fill it in locally.
 The backend needs `MONGO_URI`, `JWT_SECRET`, and a Duffel test token for the
-default flight provider. A working hosted MongoDB connection needs no local
+default flight provider. Set `GOOGLE_MAPS_API_KEY` to enable airport-only flight
+autocomplete; restrict the key to Places API (New) and keep it in the backend
+`.env`, never `mobile/.env`. A working hosted MongoDB connection needs no local
 MongoDB installation.
 
 Start the backend in one terminal:
@@ -144,8 +146,12 @@ Autonomy preferences are still local; automatic monitoring is not connected.
 **Member app backend** (used by `mobile/`):
 
 - `POST /auth/signup`, `POST /auth/login`, `GET /auth/me` (bearer token).
+- `GET /search/airports?query=` — Google Places API (New) airport-only
+  predictions. `POST /search/airports/resolve` with `{ placeId }` returns an
+  IATA code only when Duffel confirms a unique nearby airport.
 - `GET /search/flights?origin&destination&departuredate` — normalized Duffel test
-  offers by default, with Sabre as an alternative. `GET /search/hotels?destination&checkIn&checkOut`
+  offers only; the mobile flight-search route rejects non-Duffel provider
+  configuration. `GET /search/hotels?destination&checkIn&checkOut`
   and `GET /search/cabs?destination` — mock data (Sabre has no cab product;
   hotels aren't provisioned on this trial account). All three auto-log to
   history when a valid bearer token is sent, but none require one.

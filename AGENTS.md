@@ -87,6 +87,9 @@ directly on Sabre or simulator implementations.
 - Physical-plausibility filtering of search results before they reach the app
   or the agent core.
 - Mobile search/results/filter/sort/details flows, auth, and recent search history.
+- Airport-only mobile flight autocomplete uses Google Places API (New); a Google
+  airport must resolve to a unique nearby Duffel airport before its IATA code is
+  stored or searched.
 - Authenticated Duffel sandbox checkout for one adult, with passenger details,
   fresh server quotes, explicit review of changed fares, and independent order
   confirmation. Confirmed bookings automatically appear in Protected Trips.
@@ -320,6 +323,7 @@ Backend requirements:
 - Node.js `>=20.6.0` according to the root package.
 - MongoDB reachable through `MONGO_URI` for member trips/accounts/history/audit.
 - `DUFFEL_ACCESS_TOKEN` with a test token for default search, checkout, tracking.
+- `GOOGLE_MAPS_API_KEY` for mobile airport autocomplete; enable Places API (New).
 - Sabre credentials only when using Sabre search.
 
 Missing provider credentials do not make checkout or tracking work through a
@@ -337,6 +341,7 @@ SEARCH_PROVIDER=duffel
 BOOKING_PROVIDER=duffel
 STATUS_PROVIDER=duffel
 DUFFEL_ACCESS_TOKEN=
+GOOGLE_MAPS_API_KEY=
 SABRE_CLIENT_ID=
 SABRE_CLIENT_SECRET=
 SABRE_BASE_URL=https://api-crt.cert.havail.sabre.com
@@ -415,7 +420,9 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `POST /auth/signup` | None | Creates Mongo user, returns JWT and public user |
 | `POST /auth/login` | None | Verifies password, returns JWT and public user |
 | `GET /auth/me` | Required | Restores the current user from JWT |
-| `GET /search/flights` | Optional | Duffel/Sabre normalized offers; invalid/missing airports or date return 400; logs signed-in search |
+| `GET /search/flights` | Optional | Duffel normalized offers only; rejects non-Duffel provider configuration; invalid/missing airports or date return 400; logs signed-in search |
+| `GET /search/airports?query=` | Optional | Google Places API (New) predictions restricted to the airport primary type and India region |
+| `POST /search/airports/resolve` | Optional | Returns an IATA code only when Duffel confirms a unique nearby airport; otherwise unavailable |
 | `GET /search/hotels` | Optional | Five deterministic mock listings; logs signed-in search |
 | `GET /search/cabs` | Optional | Four deterministic mock listings; logs signed-in search |
 | `POST /bookings/quote` | Required | Refreshes Duffel offer and saves versioned quote from `{ offerId }` |

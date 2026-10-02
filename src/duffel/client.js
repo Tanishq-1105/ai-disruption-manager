@@ -79,6 +79,16 @@ export function getOffer(offerId, opts) {
   return request(`/air/offers/${offerId}?return_available_services=true`, opts);
 }
 
+export function suggestPlaces({ query, latitude, longitude, radius = 20_000 }, opts) {
+  const params = new URLSearchParams({
+    query,
+    lat: String(latitude),
+    lng: String(longitude),
+    rad: String(radius),
+  });
+  return request(`/places/suggestions?${params}`, opts);
+}
+
 /**
  * The real seat matrix. Returns [] rather than throwing when an offer has no
  * map — partner-airline offers in test mode often do not, while Duffel Airways

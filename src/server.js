@@ -27,6 +27,8 @@ app.get('/api', (req, res) => {
       'POST /auth/login',
       'GET /auth/me',
       'GET /search/flights',
+      'GET /search/airports?query=',
+      'POST /search/airports/resolve',
       'GET /search/hotels',
       'GET /search/cabs',
       'GET /tracking/:flightNumber',

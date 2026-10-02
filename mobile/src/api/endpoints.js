@@ -20,6 +20,16 @@ export async function searchFlights(params) {
   return data;
 }
 
+export async function searchAirports(query) {
+  const { data } = await apiClient.get('/search/airports', { params: { query } });
+  return data.results;
+}
+
+export async function resolveAirport(placeId) {
+  const { data } = await apiClient.post('/search/airports/resolve', { placeId });
+  return data;
+}
+
 export async function searchHotels(params) {
   const { data } = await apiClient.get('/search/hotels', { params });
   return data;

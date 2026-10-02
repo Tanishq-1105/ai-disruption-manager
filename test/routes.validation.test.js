@@ -5,6 +5,7 @@ import search from '../src/routes/search.js';
 import simulatorRouter from '../src/routes/simulator.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import * as simulator from '../src/simulator/state.js';
+import { config } from '../src/config.js';
 
 test('invalid search inputs return 400 and missing simulator resources return 404', async () => {
   const app = express();
@@ -29,10 +30,11 @@ test('invalid search inputs return 400 and missing simulator resources return 40
       assert.equal(response.status, 400, query);
       assert.equal((await response.json()).code, 'INVALID_SEARCH');
     }
-    for (const path of ['/search/hotels', '/search/cabs',
+    for (const path of ['/search/hotels', '/search/cabs', '/search/airports', '/search/airports?query=m',
       '/search/hotels?destination=LON&checkIn=2030-10-12&checkOut=2030-10-11']) {
       assert.equal((await call(path)).status, 400);
     }
+    assert.equal((await call('/search/airports/resolve', {})).status, 400);
     for (const [path, body] of [
       ['/simulator/trips/absent/analyse'], ['/simulator/trips/absent/recover', {}],
       ['/simulator/trips/absent/nodes/flight/cancel', {}],
@@ -49,5 +51,23 @@ test('invalid search inputs return 400 and missing simulator resources return 40
   } finally {
     await new Promise(resolve => server.close(resolve));
     simulator._resetForTests();
+  }
+});
+
+test('mobile flight search refuses non-Duffel providers', async () => {
+  const app = express();
+  app.use('/search', search);
+  app.use(errorHandler);
+  const server = app.listen(0, '127.0.0.1');
+  const previousSearchProvider = config.providers.search;
+  config.providers.search = 'sabre';
+  await new Promise(resolve => server.once('listening', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/search/flights?origin=HYD&destination=BOM&departuredate=2030-10-12`);
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'DUFFEL_SEARCH_REQUIRED');
+  } finally {
+    config.providers.search = previousSearchProvider;
+    await new Promise(resolve => server.close(resolve));
   }
 });

@@ -4,6 +4,7 @@ import * as flightSearch from '../providers/search.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 import * as history from '../store/history.js';
 import { HttpError } from '../errors.js';
+import * as airportSearch from '../airports/search.js';
 
 // Browse-only endpoints. Flights use the selected provider; hotels/cabs are mock.
 // optionalAuth so browsing never requires login — a signed-in user just gets
@@ -30,6 +31,9 @@ async function logHistory(req, category, results) {
 
 router.get('/flights', async (req, res, next) => {
   try {
+    if (flightSearch.activeSearchProvider() !== 'duffel') {
+      throw new HttpError(503, 'DUFFEL_SEARCH_REQUIRED', 'Mobile flight search requires SEARCH_PROVIDER=duffel.');
+    }
     const { origin, destination, departuredate } = req.query;
     if (typeof origin !== 'string' || !/^[A-Z]{3}$/.test(origin)
         || typeof destination !== 'string' || !/^[A-Z]{3}$/.test(destination)
@@ -49,6 +53,31 @@ router.get('/flights', async (req, res, next) => {
     }
     await logHistory(req, 'flights', results);
     res.json({ source, query: req.query, results, filtered: rejected.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/airports', async (req, res, next) => {
+  try {
+    const { query } = req.query;
+    if (typeof query !== 'string' || query.trim().length < 2 || query.length > 100) {
+      invalid('Provide an airport search query between 2 and 100 characters.');
+    }
+    res.json({ results: await airportSearch.autocompleteAirports(query.trim()) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/airports/resolve', async (req, res, next) => {
+  try {
+    const { placeId } = req.body ?? {};
+    if (typeof placeId !== 'string' || !/^[\w-]{5,200}$/.test(placeId)) {
+      invalid('Provide a valid Google airport place ID.');
+    }
+    const airport = await airportSearch.resolveAirport(placeId);
+    res.json({ available: Boolean(airport), airport });
   } catch (err) {
     next(err);
   }

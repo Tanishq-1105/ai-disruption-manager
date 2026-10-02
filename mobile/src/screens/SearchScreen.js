@@ -6,22 +6,35 @@ import { CATEGORIES } from '../config/categories.js';
 import { colors, spacing, radius, typography } from '../theme/index.js';
 import { BlueprintCard, Button, Eyebrow, SegmentedControl } from '../components/ui/index.js';
 import { DateField } from '../components/DateField.js';
+import { AirportAutocomplete } from '../components/AirportAutocomplete.js';
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORIES).map((key) => ({ key, label: CATEGORIES[key].label }));
 
 export default function SearchScreen({ navigation, route }) {
   const [category, setCategory] = useState(route.params?.category || 'flights');
   const [values, setValues] = useState({});
+  const [airports, setAirports] = useState({});
+  const [formError, setFormError] = useState('');
 
   const config = CATEGORIES[category];
 
   function setCategoryAndReset(key) {
     setCategory(key);
     setValues({});
+    setAirports({});
+    setFormError('');
   }
 
   function swapOriginDestination() {
     setValues((v) => ({ ...v, origin: v.destination || '', destination: v.origin || '' }));
+    setAirports((v) => ({ ...v, origin: v.destination || null, destination: v.origin || null }));
+    setFormError('');
+  }
+
+  function setAirport(fieldKey, airport) {
+    setAirports((v) => ({ ...v, [fieldKey]: airport }));
+    setValues((v) => ({ ...v, [fieldKey]: airport?.iata_code || '' }));
+    setFormError('');
   }
 
   function setDateValue(field, iso) {
@@ -34,6 +47,10 @@ export default function SearchScreen({ navigation, route }) {
   }
 
   function submit() {
+    if (category === 'flights' && (!airports.origin?.iata_code || !airports.destination?.iata_code)) {
+      setFormError('Choose an airport for both From and To.');
+      return;
+    }
     navigation.navigate('Results', { category, params: values });
   }
 
@@ -57,6 +74,12 @@ export default function SearchScreen({ navigation, route }) {
                     onChange={(iso) => setDateValue(field, iso)}
                     minDate={field.minDate ? field.minDate(values) : undefined}
                   />
+                ) : category === 'flights' && isSwappable ? (
+                  <AirportAutocomplete
+                    value={airports[field.key] || null}
+                    onSelect={(airport) => setAirport(field.key, airport)}
+                    onClear={() => setAirport(field.key, null)}
+                  />
                 ) : (
                   <View style={styles.inputRow}>
                     <TextInput
@@ -77,6 +100,8 @@ export default function SearchScreen({ navigation, route }) {
             );
           })}
         </View>
+
+        {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
         <BlueprintCard style={styles.notice}>
           <View style={styles.noticeRow}>
@@ -102,6 +127,7 @@ const styles = StyleSheet.create({
   fields: { marginTop: spacing.xl },
   fieldGroup: { marginBottom: spacing.md + 2 },
   label: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs + 2 },
+  formError: { color: colors.danger, fontSize: 13, marginTop: -spacing.xs, marginBottom: spacing.sm },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   input: {
     flex: 1,

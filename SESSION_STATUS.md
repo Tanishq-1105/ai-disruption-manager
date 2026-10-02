@@ -1,6 +1,6 @@
 # TripShield — session handoff and TODOs
 
-Updated: 2026-09-22. Read after AGENTS.md, then inspect relevant source only.
+Updated: 2026-10-03. Read after AGENTS.md, then inspect relevant source only.
 Source/package files are authoritative. Preserve the dirty working tree; no
 commits were created. Maintain this snapshot without reminders; dated results
 belong here, conventions in AGENTS.md, setup in README.md. No PROJECT_CONTEXT.md.
@@ -26,6 +26,34 @@ run the existing safe recovery independently per passenger. A saved member trip
 is updated only after the replacement is independently confirmed.
 
 ## Completed this session
+
+- Created `feature/airport-autocomplete` after fetching and fast-forward checking
+  `main` against `origin/main`. Configure `GOOGLE_MAPS_API_KEY` in the backend
+  `.env` locally to enable live suggestions; no key was added to the repository.
+- The mobile flight-search endpoint now rejects non-Duffel provider selection;
+  the airport-only suggestion flow resolves IATA through Duffel, and the
+  existing Duffel Airways carrier filter remains enabled by default.
+- Added mobile flight airport autocomplete using Google Places API (New) with
+  `includedPrimaryTypes: ["airport"]` and India region restriction. Google place
+  details are checked as airports, then resolved to a unique nearby Duffel
+  airport; city codes and ambiguous matches are rejected. The mobile search
+  stores only Duffel's airport IATA code and blocks raw text submissions.
+- Airport endpoint and route-validation tests: **5 passed**. Full backend
+  suite: **283 passed, 0 failed**. Editor diagnostics found no errors in the
+  touched source.
+- 2026-10-03 live backend HTTP check: Google Places (New) returned two Mumbai
+  airport suggestions for `mum`; selecting Chhatrapati Shivaji Maharaj
+  International Airport resolved through Duffel to `BOM`. The Google key was
+  not printed.
+- Frontend source JSX parses and editor diagnostics are clean, but rendered UI
+  interaction remains unverified. Expo web dependencies are absent; a temporary
+  no-save install hit Windows `EPERM`, and Android export hit Metro `EINVAL`
+  reading `axios/index.d.ts` under OneDrive. No package manifests were changed.
+- Fixed mobile startup by removing `expo-status-bar` from `app.json`'s config
+  plugins; it is a runtime component, not a config plugin. Restored the mobile
+  install from its SDK 57 lockfile. `npm run mobile` starts Metro and prints
+  the Expo Go QR/URL. Local Node.js 20.14.0 still prints an unsupported-version
+  warning (SDK 57 recommends >=20.19.4).
 
 - Added an explicit Duffel Airways-only deployment mode. Duffel search and both
   recovery/member quote refreshes now accept only carrier `ZZ` by default;
