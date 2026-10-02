@@ -36,7 +36,6 @@ export async function autocompleteAirports(input, {
     body: JSON.stringify({
       input,
       includedPrimaryTypes: ['airport'],
-      includedRegionCodes: ['in'],
       includeQueryPredictions: false,
     }),
   });

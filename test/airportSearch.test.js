@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { autocompleteAirports, resolveAirport } from '../src/airports/search.js';
 
-test('Google Places New autocomplete requests only airport predictions in India', async () => {
+test('Google Places New autocomplete requests airports worldwide and excludes non-airports', async () => {
   let request;
   const results = await autocompleteAirports('mum', {
     apiKey: 'test-key',
@@ -23,7 +23,7 @@ test('Google Places New autocomplete requests only airport predictions in India'
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['X-Goog-Api-Key'], 'test-key');
   assert.deepEqual(JSON.parse(request.options.body), {
-    input: 'mum', includedPrimaryTypes: ['airport'], includedRegionCodes: ['in'], includeQueryPredictions: false,
+    input: 'mum', includedPrimaryTypes: ['airport'], includeQueryPredictions: false,
   });
   assert.equal(results.length, 1);
   assert.equal(results[0].placeId, 'airport-12345');

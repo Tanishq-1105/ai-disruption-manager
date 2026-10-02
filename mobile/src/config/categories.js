@@ -30,7 +30,8 @@ export const CATEGORIES = {
     searchFields: [
       { key: 'origin', label: 'From airport' },
       { key: 'destination', label: 'To airport' },
-      { key: 'departuredate', label: 'Departure date', type: 'date', minDate: () => todayISO() },
+      { key: 'departuredate', label: 'Departure date (optional)', type: 'date',
+        placeholder: 'Defaults to tomorrow', minDate: () => todayISO() },
     ],
     fetch: endpoints.searchFlights,
     ItemComponent: FlightItem,

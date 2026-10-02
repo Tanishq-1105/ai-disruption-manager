@@ -421,7 +421,7 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `POST /auth/login` | None | Verifies password, returns JWT and public user |
 | `GET /auth/me` | Required | Restores the current user from JWT |
 | `GET /search/flights` | Optional | Duffel normalized offers only; rejects non-Duffel provider configuration; invalid/missing airports or date return 400; logs signed-in search |
-| `GET /search/airports?query=` | Optional | Google Places API (New) predictions restricted to the airport primary type and India region |
+| `GET /search/airports?query=` | Optional | Worldwide Google Places API (New) predictions restricted to the airport primary type |
 | `POST /search/airports/resolve` | Optional | Returns an IATA code only when Duffel confirms a unique nearby airport; otherwise unavailable |
 | `GET /search/hotels` | Optional | Five deterministic mock listings; logs signed-in search |
 | `GET /search/cabs` | Optional | Four deterministic mock listings; logs signed-in search |

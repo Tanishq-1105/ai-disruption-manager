@@ -33,18 +33,22 @@ is updated only after the replacement is independently confirmed.
 - The mobile flight-search endpoint now rejects non-Duffel provider selection;
   the airport-only suggestion flow resolves IATA through Duffel, and the
   existing Duffel Airways carrier filter remains enabled by default.
+- Mobile flight search now validates From airport, To airport, and departure
+  date before navigation; Results also blocks malformed route params before
+  calling the API, replacing an avoidable HTTP 400 with a field-specific prompt.
 - Added mobile flight airport autocomplete using Google Places API (New) with
-  `includedPrimaryTypes: ["airport"]` and India region restriction. Google place
-  details are checked as airports, then resolved to a unique nearby Duffel
-  airport; city codes and ambiguous matches are rejected. The mobile search
-  stores only Duffel's airport IATA code and blocks raw text submissions.
-- Airport endpoint and route-validation tests: **5 passed**. Full backend
-  suite: **283 passed, 0 failed**. Editor diagnostics found no errors in the
-  touched source.
-- 2026-10-03 live backend HTTP check: Google Places (New) returned two Mumbai
-  airport suggestions for `mum`; selecting Chhatrapati Shivaji Maharaj
-  International Airport resolved through Duffel to `BOM`. The Google key was
-  not printed.
+  `includedPrimaryTypes: ["airport"]` and no country restriction. Removing the
+  previous `includedRegionCodes: ["in"]` setting enabled international results.
+  Google place details are checked as airports, then resolved to a unique
+  nearby Duffel airport; city codes and ambiguous matches are rejected. The
+  mobile search stores only Duffel's airport IATA code and blocks raw text.
+- Airport endpoint and route-validation tests: **5 passed**. The last full suite
+  before the optional-date change had **286 passed, 0 failed**. The focused test
+  for the new date-default behavior was skipped at the user's request, so that
+  behavior remains unverified.
+- 2026-10-03 live checks: Google Places returned Mumbai airports for `mum` and
+  London Heathrow for `London Heathrow`; Duffel confirmed `BOM` and `LHR`,
+  respectively. The Google key was not printed.
 - Frontend source JSX parses and editor diagnostics are clean, but rendered UI
   interaction remains unverified. Expo web dependencies are absent; a temporary
   no-save install hit Windows `EPERM`, and Android export hit Metro `EINVAL`

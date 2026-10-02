@@ -7,6 +7,7 @@ import { colors, spacing, radius, typography } from '../theme/index.js';
 import { BlueprintCard, Button, Eyebrow, SegmentedControl } from '../components/ui/index.js';
 import { DateField } from '../components/DateField.js';
 import { AirportAutocomplete } from '../components/AirportAutocomplete.js';
+import { flightSearchError, withDefaultFlightDate } from '../utils/flightSearch.js';
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORIES).map((key) => ({ key, label: CATEGORIES[key].label }));
 
@@ -47,11 +48,15 @@ export default function SearchScreen({ navigation, route }) {
   }
 
   function submit() {
-    if (category === 'flights' && (!airports.origin?.iata_code || !airports.destination?.iata_code)) {
-      setFormError('Choose an airport for both From and To.');
-      return;
+    const params = category === 'flights' ? withDefaultFlightDate(values) : values;
+    if (category === 'flights') {
+      const validationError = flightSearchError(params);
+      if (validationError) {
+        setFormError(validationError);
+        return;
+      }
     }
-    navigation.navigate('Results', { category, params: values });
+    navigation.navigate('Results', { category, params });
   }
 
   return (
@@ -72,6 +77,7 @@ export default function SearchScreen({ navigation, route }) {
                   <DateField
                     value={values[field.key] || ''}
                     onChange={(iso) => setDateValue(field, iso)}
+                    placeholder={field.placeholder}
                     minDate={field.minDate ? field.minDate(values) : undefined}
                   />
                 ) : category === 'flights' && isSwappable ? (

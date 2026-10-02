@@ -7,6 +7,7 @@ import { colors, spacing, radius } from '../theme/index.js';
 import { Tag } from '../components/ui/index.js';
 import { FilterSheet } from '../components/FilterSheet.js';
 import { ResultCard } from '../components/ResultCard.js';
+import { flightSearchError, withDefaultFlightDate } from '../utils/flightSearch.js';
 
 function defaultFilterValues(filters) {
   const values = {};
@@ -15,7 +16,8 @@ function defaultFilterValues(filters) {
 }
 
 export default function ResultsScreen({ route, navigation }) {
-  const { category, params } = route.params;
+  const { category, params: routeParams } = route.params;
+  const params = category === 'flights' ? withDefaultFlightDate(routeParams) : routeParams;
   const config = CATEGORIES[category];
   const sortKeys = Object.keys(config.sorts);
   const filters = config.filters || [];
@@ -34,6 +36,17 @@ export default function ResultsScreen({ route, navigation }) {
     setLoading(true);
     setError(null);
     setFilterValues(defaultFilterValues(filters));
+
+    if (category === 'flights') {
+      const validationError = flightSearchError(params);
+      if (validationError) {
+        setError(validationError);
+        setLoading(false);
+        return () => {
+          cancelled = true;
+        };
+      }
+    }
 
     config
       .fetch(params)
