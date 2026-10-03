@@ -3,11 +3,12 @@ import { View, Text, TextInput, FlatList, StyleSheet, Pressable, ActivityIndicat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CATEGORIES } from '../config/categories.js';
-import { colors, spacing, radius } from '../theme/index.js';
+import { colors, spacing, radius, typography } from '../theme/index.js';
 import { Tag } from '../components/ui/index.js';
 import { FilterSheet } from '../components/FilterSheet.js';
 import { ResultCard } from '../components/ResultCard.js';
 import { flightSearchError, withDefaultFlightDate } from '../utils/flightSearch.js';
+import { formatDisplayDate } from '../utils/date.js';
 
 function defaultFilterValues(filters) {
   const values = {};
@@ -114,6 +115,16 @@ export default function ResultsScreen({ route, navigation }) {
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <View style={styles.controls}>
+        {category === 'flights' ? (
+          <View style={styles.routeSummary}>
+            <View style={styles.routeCodes}>
+              <Text style={styles.routeCode}>{params.origin}</Text>
+              <Ionicons name="arrow-forward" size={14} color={colors.accent700} />
+              <Text style={styles.routeCode}>{params.destination}</Text>
+            </View>
+            <Text style={styles.routeDate}>{formatDisplayDate(params.departuredate)}</Text>
+          </View>
+        ) : null}
         <View style={styles.searchRow}>
           <TextInput
             style={styles.searchInput}
@@ -146,11 +157,11 @@ export default function ResultsScreen({ route, navigation }) {
           ))}
         </View>
 
-        <Text style={styles.resultMeta}>
-          {visible.length} result{visible.length === 1 ? '' : 's'}
-          {source === 'mock' ? ' · sample data' : ''}
-          {source === 'duffel' ? ' · Duffel sandbox' : ''}
-        </Text>
+        <View style={styles.resultMetaRow}>
+          <Text style={styles.resultMeta}>{visible.length} OPTIONS</Text>
+          {source === 'mock' ? <Text style={styles.sourceMeta}>SAMPLE</Text> : null}
+          {source === 'duffel' ? <Text style={styles.sourceMeta}>DUFFEL SANDBOX</Text> : null}
+        </View>
       </View>
 
       <FlatList
@@ -158,7 +169,13 @@ export default function ResultsScreen({ route, navigation }) {
         data={visible}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <ResultCard item={item} category={category} config={config} navigation={navigation} />}
-        ListEmptyComponent={<Text style={styles.emptyText}>No results match your filters.</Text>}
+        ListEmptyComponent={(
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}><Ionicons name="airplane-outline" size={22} color={colors.accent800} /></View>
+            <Text style={styles.emptyTitle}>No routes in this view</Text>
+            <Text style={styles.emptyText}>Try another date or adjust your stops and filters.</Text>
+          </View>
+        )}
       />
 
       <FilterSheet
@@ -177,15 +194,19 @@ export default function ResultsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
-  errorText: { color: colors.danger, paddingHorizontal: 20, textAlign: 'center' },
-  controls: { padding: spacing.lg, paddingBottom: spacing.sm },
-  searchRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm + 2 },
+  errorText: { color: colors.danger, paddingHorizontal: 20, textAlign: 'center', fontSize: 14, lineHeight: 20 },
+  controls: { padding: spacing.lg, paddingBottom: spacing.md },
+  routeSummary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  routeCodes: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  routeCode: { ...typography.heading, fontSize: 17, color: colors.accent900 },
+  routeDate: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  searchRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   searchInput: {
     flex: 1,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.divider,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     fontSize: 15,
@@ -194,7 +215,7 @@ const styles = StyleSheet.create({
   filterButton: {
     width: 44,
     height: 44,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.divider,
@@ -214,8 +235,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   filterBadgeText: { color: colors.white, fontSize: 10, fontWeight: '700' },
-  sortRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm, flexWrap: 'wrap' },
-  resultMeta: { fontSize: 12, color: colors.textMuted },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
-  emptyText: { textAlign: 'center', color: colors.textMuted, marginTop: 40 },
+  sortRow: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md, flexWrap: 'wrap' },
+  resultMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  resultMeta: { fontSize: 10, fontWeight: '800', color: colors.text, letterSpacing: 0.8 },
+  sourceMeta: { fontSize: 9, fontWeight: '800', color: colors.accent700, letterSpacing: 0.6 },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, flexGrow: 1 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, paddingVertical: spacing.xxxl },
+  emptyIcon: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  emptyTitle: { ...typography.headingMedium, fontSize: 17, color: colors.text, marginBottom: spacing.xs },
+  emptyText: { textAlign: 'center', color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
 });

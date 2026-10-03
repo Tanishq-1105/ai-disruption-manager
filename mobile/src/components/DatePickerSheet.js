@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography } from '../theme/index.js';
+import { Eyebrow } from './ui/index.js';
 import { daysInMonth, firstWeekdayOfMonth, fromISO, toISO, todayISO, MONTH_NAMES, WEEKDAY_LABELS } from '../utils/date.js';
 
 // A self-built calendar sheet rather than a native date picker — keeps one
@@ -46,6 +47,16 @@ export function DatePickerSheet({ visible, onClose, selectedDate, minDate, onSel
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.sheet}>
+        <View style={styles.handle} />
+        <View style={styles.titleRow}>
+          <View>
+            <Eyebrow>YOUR DEPARTURE</Eyebrow>
+            <Text style={styles.heading}>Choose a date</Text>
+          </View>
+          <Pressable onPress={onClose} hitSlop={8} style={styles.closeButton}>
+            <Ionicons name="close" size={18} color={colors.accent800} />
+          </Pressable>
+        </View>
         <View style={styles.header}>
           <Pressable onPress={() => changeMonth(-1)} hitSlop={8} style={styles.navButton}>
             <Ionicons name="chevron-back" size={20} color={colors.accent700} />
@@ -103,20 +114,26 @@ export function DatePickerSheet({ visible, onClose, selectedDate, minDate, onSel
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(6, 42, 39, 0.4)' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(6, 32, 28, 0.56)' },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    padding: spacing.lg,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
   },
+  handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.divider, alignSelf: 'center', marginTop: spacing.sm + 2 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.lg, marginBottom: spacing.lg },
+  heading: { ...typography.heading, fontSize: 22, color: colors.text, marginTop: 4 },
+  closeButton: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   navButton: {
     width: 32,
     height: 32,
     borderRadius: radius.pill,
-    backgroundColor: colors.neutral100,
+    backgroundColor: colors.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -125,9 +142,9 @@ const styles = StyleSheet.create({
   weekLabel: { width: `${100 / 7}%`, textAlign: 'center', fontSize: 12, fontWeight: '700', color: colors.textMuted },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
-  cellSelected: { backgroundColor: colors.accent, borderRadius: radius.pill },
+  cellSelected: { backgroundColor: colors.accent800, borderRadius: radius.sm },
   cellText: { fontSize: 14, color: colors.text },
   cellTextDisabled: { color: colors.textMuted, opacity: 0.4 },
-  cellTextToday: { color: colors.accent700, fontWeight: '700' },
+  cellTextToday: { color: colors.accent700, fontWeight: '800' },
   cellTextSelected: { color: colors.white, fontWeight: '700' },
 });

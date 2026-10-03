@@ -62,12 +62,20 @@ export default function SearchScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Eyebrow>Search</Eyebrow>
-        <Text style={styles.heading}>Where to?</Text>
+        <Eyebrow>ROUTE BUILDER · 01</Eyebrow>
+        <Text style={styles.heading}>Where to next?</Text>
+        <Text style={styles.intro}>Choose your route and we’ll find the way there.</Text>
 
         <SegmentedControl options={CATEGORY_OPTIONS} value={category} onChange={setCategoryAndReset} />
 
         <View style={styles.fields}>
+          <View style={styles.fieldsHeader}>
+            <View style={styles.fieldsTitleGroup}>
+              <View style={styles.fieldsGlyph}><Ionicons name={CATEGORY_OPTIONS.find(option => option.key === category)?.key === 'flights' ? 'airplane' : 'navigate'} size={15} color={colors.accent800} /></View>
+              <Text style={styles.fieldsTitle}>{category === 'flights' ? 'Flight route' : `${config.label} details`}</Text>
+            </View>
+            <Text style={styles.fieldsIndex}>01 / 03</Text>
+          </View>
           {config.searchFields.map((field) => {
             const isSwappable = category === 'flights' && (field.key === 'origin' || field.key === 'destination');
             return (
@@ -111,10 +119,10 @@ export default function SearchScreen({ navigation, route }) {
 
         <BlueprintCard style={styles.notice}>
           <View style={styles.noticeRow}>
-            <Ionicons name="shield-checkmark-outline" size={18} color={colors.accent700} />
+            <View style={styles.noticeIcon}><Ionicons name="shield-checkmark" size={15} color={colors.accent800} /></View>
             <Text style={styles.noticeText}>
               {category === 'flights'
-                ? 'Confirm a Duffel sandbox flight to save it to Protected Trips. Automatic trip recovery is not connected yet.'
+                ? 'Sandbox flight. Confirmed Duffel bookings appear in Protected Trips.'
                 : 'Hotel and cab results are sample listings. Booking is not connected yet.'}
             </Text>
           </View>
@@ -128,19 +136,25 @@ export default function SearchScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  heading: { ...typography.heading, fontSize: 24, color: colors.text, marginTop: 4, marginBottom: spacing.lg },
-  fields: { marginTop: spacing.xl },
-  fieldGroup: { marginBottom: spacing.md + 2 },
-  label: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs + 2 },
-  formError: { color: colors.danger, fontSize: 13, marginTop: -spacing.xs, marginBottom: spacing.sm },
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxxl },
+  heading: { ...typography.heading, fontSize: 30, lineHeight: 36, color: colors.text, marginTop: spacing.xs, marginBottom: spacing.xs },
+  intro: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: spacing.lg },
+  fields: { marginTop: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.divider, padding: spacing.md },
+  fieldsHeader: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  fieldsTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  fieldsGlyph: { width: 28, height: 28, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  fieldsTitle: { ...typography.headingMedium, fontSize: 15, color: colors.text },
+  fieldsIndex: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  fieldGroup: { marginBottom: spacing.md },
+  label: { fontSize: 10, fontWeight: '800', color: colors.textMuted, marginBottom: spacing.xs + 2, letterSpacing: 0.9 },
+  formError: { color: colors.danger, fontSize: 13, marginTop: spacing.sm, marginBottom: spacing.xs },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   input: {
     flex: 1,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.divider,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     fontSize: 15,
@@ -149,13 +163,14 @@ const styles = StyleSheet.create({
   swapButton: {
     width: 40,
     height: 40,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     backgroundColor: colors.neutral100,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notice: { marginTop: spacing.md, backgroundColor: colors.bg },
-  noticeRow: { flexDirection: 'row', gap: spacing.sm + 2, alignItems: 'flex-start' },
-  noticeText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
-  submitButton: { marginTop: spacing.xl },
+  notice: { marginTop: spacing.md, backgroundColor: colors.bgTint, borderWidth: 0 },
+  noticeRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  noticeIcon: { width: 26, height: 26, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  noticeText: { flex: 1, fontSize: 11, lineHeight: 16, color: colors.textSecondary },
+  submitButton: { marginTop: spacing.lg },
 });

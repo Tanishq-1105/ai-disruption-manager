@@ -34,7 +34,7 @@ function getVariantStyle(variant, toneColor) {
       };
     case 'neutral':
     default:
-      return { container: { backgroundColor: colors.neutral100 }, text: { color: colors.neutral700 } };
+      return { container: { backgroundColor: colors.bgTint }, text: { color: colors.neutral700 } };
   }
 }
 
@@ -42,10 +42,10 @@ const styles = StyleSheet.create({
   base: {
     paddingHorizontal: spacing.sm + 2,
     paddingVertical: 4,
-    borderRadius: radius.pill,
+    borderRadius: radius.sm,
     alignSelf: 'flex-start',
   },
-  md: { paddingHorizontal: spacing.md, paddingVertical: 6 },
-  text: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  md: { minHeight: 34, paddingHorizontal: spacing.md, paddingVertical: 8 },
+  text: { fontSize: 11, fontWeight: '700', letterSpacing: 0 },
   textMd: { fontSize: 12 },
 });

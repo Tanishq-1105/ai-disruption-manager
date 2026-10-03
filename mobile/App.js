@@ -23,7 +23,7 @@ import SignupScreen from './src/screens/SignupScreen.js';
 import AuthLandingScreen from './src/screens/AuthLandingScreen.js';
 
 const stackScreenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
+  headerStyle: { backgroundColor: colors.bg },
   headerShadowVisible: false,
   headerTintColor: colors.accent700,
   headerTitleStyle: { ...typography.headingMedium, fontSize: 17, color: colors.text },
@@ -110,7 +110,15 @@ function RootTabs() {
         headerShown: false,
         tabBarActiveTintColor: colors.accent700,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.divider },
+          tabBarStyle: {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.divider,
+            borderTopWidth: 1,
+            height: 66,
+            paddingTop: 6,
+            paddingBottom: 4,
+          },
+          tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
         tabBarIcon: ({ focused, size }) => {
           const [filled, outline] = TAB_ICONS[route.name];
           return <Ionicons name={focused ? filled : outline} size={size} color={focused ? colors.accent700 : colors.textMuted} />;

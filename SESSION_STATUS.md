@@ -1,17 +1,18 @@
 # TripShield — session handoff and TODOs
 
-Updated: 2026-10-03. Read after AGENTS.md, then inspect relevant source only.
+Updated: 2026-10-04. Read after AGENTS.md, then inspect relevant source only.
 Source/package files are authoritative. Preserve the dirty working tree; no
 commits were created. Maintain this snapshot without reminders; dated results
 belong here, conventions in AGENTS.md, setup in README.md. No PROJECT_CONTEXT.md.
 
 ## Where we stopped
 
+gates dependent changes. Phone/UI feedback is still pending. No mobile code was
 Completed the next backend session: recovery now checks refreshed offers and
 independently confirms orders before release, pauses uncertain purchases, and
-gates dependent changes. Phone/UI feedback is still pending. No mobile code was
-changed in this session. The user starts backend/Expo in their own terminals to
-see the QR code; development servers were not needed for these checks.
+gates dependent changes. The mobile UI has since received a visual refresh; the
+rendered app was not rechecked because the user chose not to launch Expo on
+alternate port 8083 while 8081 was occupied.
 
 On 2026-09-22, added the first bridge from persisted member bookings to the
 disruption simulator. An authenticated owner can manually simulate a
@@ -27,6 +28,18 @@ is updated only after the replacement is independently confirmed.
 
 ## Completed this session
 
+- Refreshed the mobile visual system while retaining the TripShield teal palette:
+  editorial departure hero, clearer search form, leg-by-leg flight cards,
+  upgraded result hierarchy, and cohesive date/filter/quick-book overlays.
+- Updated Node to portable v24.21.0 under LocalAppData and added a user
+  PowerShell profile entry so Expo SDK 57 uses a supported Node runtime.
+- Mobile UI JSX parse: **13 modules passed**; editor diagnostics reported no
+  errors. Explicit project test glob: **288 passed, 0 failed**. Default `npm
+  test` also discovered dependency tests under an existing node_modules backup;
+  that backup was preserved and the project tests were run explicitly.
+- Expo started successfully under Node 24 earlier. On the latest launch, port
+  8081 was occupied; the user declined using port 8083, so no dev server was
+  left running by that attempt. Physical-device UI review remains pending.
 - Created `feature/airport-autocomplete` after fetching and fast-forward checking
   `main` against `origin/main`. Configure `GOOGLE_MAPS_API_KEY` in the backend
   `.env` locally to enable live suggestions; no key was added to the repository.
@@ -49,15 +62,16 @@ is updated only after the replacement is independently confirmed.
 - 2026-10-03 live checks: Google Places returned Mumbai airports for `mum` and
   London Heathrow for `London Heathrow`; Duffel confirmed `BOM` and `LHR`,
   respectively. The Google key was not printed.
-- Frontend source JSX parses and editor diagnostics are clean, but rendered UI
-  interaction remains unverified. Expo web dependencies are absent; a temporary
-  no-save install hit Windows `EPERM`, and Android export hit Metro `EINVAL`
-  reading `axios/index.d.ts` under OneDrive. No package manifests were changed.
+- Fixed the runtime red-screen `ReferenceError: Property 'typography' doesn't
+  exist` by importing `typography` in ResultsScreen. Android export now passes
+  under Node 24: Metro bundled 967 modules into a 2.6 MB Hermes bundle. Phone
+  interaction remains unverified.
 - Fixed mobile startup by removing `expo-status-bar` from `app.json`'s config
   plugins; it is a runtime component, not a config plugin. Restored the mobile
-  install from its SDK 57 lockfile. `npm run mobile` starts Metro and prints
-  the Expo Go QR/URL. Local Node.js 20.14.0 still prints an unsupported-version
-  warning (SDK 57 recommends >=20.19.4).
+  install from its SDK 57 lockfile. Installed portable Node.js 24.21.0 under
+  LocalAppData and configured the user PowerShell profile to select it. Expo
+  printed a QR on port 8081; a later launch found 8081 occupied and the user
+  declined the alternate port 8083, so no server was left running.
 
 - Added an explicit Duffel Airways-only deployment mode. Duffel search and both
   recovery/member quote refreshes now accept only carrier `ZZ` by default;

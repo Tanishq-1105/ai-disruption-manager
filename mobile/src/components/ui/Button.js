@@ -2,8 +2,9 @@ import { Pressable, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { colors, radius, spacing } from '../../theme/index.js';
 
 const VARIANTS = {
-  primary: { container: { backgroundColor: colors.accent }, text: { color: colors.white } },
-  secondary: { container: { backgroundColor: colors.neutral100 }, text: { color: colors.accent } },
+  primary: { container: { backgroundColor: colors.accent800 }, text: { color: colors.white } },
+  highlight: { container: { backgroundColor: colors.highlight }, text: { color: colors.highlightInk } },
+  secondary: { container: { backgroundColor: colors.accentSoft }, text: { color: colors.accent800 } },
   ghost: { container: { backgroundColor: 'transparent' }, text: { color: colors.accent } },
 };
 
@@ -33,13 +34,16 @@ export function Button({ label, onPress, variant = 'primary', disabled = false, 
 
 const styles = StyleSheet.create({
   base: {
-    paddingVertical: spacing.md + 2,
+    minHeight: 50,
+    flexDirection: 'row',
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
   },
   text: { fontSize: 15, fontWeight: '700' },
   disabled: { opacity: 0.5 },
-  pressed: { opacity: 0.85 },
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

@@ -166,6 +166,11 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     borderRadius: radius.md,
     overflow: 'hidden',
+    elevation: 6,
+    shadowColor: colors.accent900,
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
   },
   result: {
     minHeight: 54,

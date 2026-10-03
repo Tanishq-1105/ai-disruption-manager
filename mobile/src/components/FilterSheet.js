@@ -11,10 +11,14 @@ export function FilterSheet({ visible, onClose, filters, results, values, onChan
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.sheet}>
+        <View style={styles.handle} />
         <View style={styles.header}>
-          <Text style={styles.title}>Filter</Text>
+          <View>
+            <Text style={styles.title}>Refine results</Text>
+            <Text style={styles.subtitle}>Choose what matters for this trip.</Text>
+          </View>
           <Pressable onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={22} color={colors.textSecondary} />
+            <View style={styles.closeButton}><Ionicons name="close" size={18} color={colors.accent800} /></View>
           </Pressable>
         </View>
 
@@ -56,28 +60,32 @@ export function FilterSheet({ visible, onClose, filters, results, values, onChan
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(6, 42, 39, 0.4)' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(6, 32, 28, 0.56)' },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    maxHeight: '75%',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    maxHeight: '82%',
     paddingBottom: spacing.xl,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
   },
+  handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.divider, alignSelf: 'center', marginTop: spacing.sm + 2 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingBottom: spacing.md,
   },
-  title: { ...typography.heading, fontSize: 17, color: colors.text },
-  content: { padding: spacing.lg },
-  group: { marginBottom: spacing.lg },
-  label: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.sm },
+  title: { ...typography.heading, fontSize: 22, color: colors.text },
+  subtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+  closeButton: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md },
+  group: { marginBottom: spacing.xl },
+  label: { ...typography.headingMedium, fontSize: 15, color: colors.text, marginBottom: spacing.md },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   emptyText: { fontSize: 12, color: colors.textMuted },
-  footer: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+  footer: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider },
   footerButton: { flex: 1 },
 });

@@ -1,5 +1,6 @@
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
-import { colors, spacing, radius } from '../theme/index.js';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, spacing, radius, typography } from '../theme/index.js';
 import { Eyebrow, Button } from './ui/index.js';
 
 // The popup a long-press on a result card opens — a shortcut past the full
@@ -13,7 +14,15 @@ export function QuickBookSheet({ visible, item, config, onClose, onViewDetails, 
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.wrap} pointerEvents="box-none">
         <View style={styles.card}>
-          <Eyebrow>Quick book</Eyebrow>
+          <View style={styles.header}>
+            <View>
+              <Eyebrow>SHORTCUT</Eyebrow>
+              <Text style={styles.title}>Ready to go?</Text>
+            </View>
+            <Pressable onPress={onClose} hitSlop={8} style={styles.closeButton}>
+              <Ionicons name="close" size={18} color={colors.accent800} />
+            </Pressable>
+          </View>
           <View style={styles.itemWrap}>
             <ItemComponent item={item} />
           </View>
@@ -28,17 +37,20 @@ export function QuickBookSheet({ visible, item, config, onClose, onViewDetails, 
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(6, 42, 39, 0.45)' },
-  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(6, 32, 28, 0.62)' },
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   card: {
     width: '100%',
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.divider,
   },
-  itemWrap: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  title: { ...typography.heading, fontSize: 23, color: colors.text, marginTop: 3 },
+  closeButton: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  itemWrap: { marginTop: spacing.xs, marginBottom: spacing.sm },
   bookButton: { marginTop: spacing.xs },
   detailsLink: { textAlign: 'center', color: colors.accent700, fontSize: 13, marginTop: spacing.md, fontWeight: '600' },
 });

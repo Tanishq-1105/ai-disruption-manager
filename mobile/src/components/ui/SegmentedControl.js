@@ -23,12 +23,13 @@ export function SegmentedControl({ options, value, onChange }) {
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    backgroundColor: colors.neutral100,
+    backgroundColor: colors.accent900,
     borderRadius: radius.md,
-    padding: 4,
+    padding: 5,
+    gap: 3,
   },
-  segment: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm, alignItems: 'center' },
-  segmentActive: { backgroundColor: colors.surface },
-  text: { color: colors.textSecondary, fontWeight: '500' },
-  textActive: { color: colors.text },
+  segment: { flex: 1, minHeight: 38, paddingVertical: spacing.sm, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  segmentActive: { backgroundColor: colors.highlight },
+  text: { color: '#C5D5CE', fontWeight: '600', fontSize: 13 },
+  textActive: { color: colors.highlightInk },
 });
