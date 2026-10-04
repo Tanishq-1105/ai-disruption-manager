@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { BookingError } from './errors.js';
+import * as recoveryAttempts from '../store/recoveryAttempts.js';
 
 const ACTIVE = ['BOOKING', 'PENDING', 'REVIEW_REQUIRED'];
 const ID = /^[a-zA-Z0-9_-]{8,100}$/;
@@ -76,8 +77,13 @@ export function createBookingService({ provider, store }) {
     return record;
   }
 
-  async function simulateDisruption({ userId, id, type = 'CANCELLED', minutes }) {
+  async function simulateDisruption({
+    userId, id, type = 'CANCELLED', minutes, source = 'MEMBER_SIMULATION', expectedOrderId,
+  }) {
     const record = await owned(userId, id);
+    if (expectedOrderId && record.orderId !== expectedOrderId) {
+      throw new BookingError(409, 'TRIP_CHANGED', 'The saved booking changed while the disruption was being checked.');
+    }
     if (record.status !== 'CONFIRMED' || !record.orderId) {
       throw new BookingError(409, 'TRIP_NOT_CONFIRMED', 'Only a confirmed sandbox trip can be disrupted.');
     }
@@ -89,6 +95,25 @@ export function createBookingService({ provider, store }) {
     }
 
     const flight = record.quote.flight;
+    const disruption = { type, minutes: type === 'DELAYED' ? minutes : null };
+    const recoveryAttempt = await recoveryAttempts.createSimulationAttempt({
+      memberTripId: record.id,
+      userId,
+      originalOrderId: record.orderId,
+      flight,
+      disruption,
+      source,
+    });
+    if (['DUFFEL_POLL', 'LOCAL_POLL_TEST'].includes(source)
+        && recoveryAttempt.state !== 'DISRUPTION_DETECTED') {
+      return {
+        tripId: record.id,
+        recoveryId: recoveryAttempt.id,
+        disruption,
+        alreadyHandled: true,
+        recoveryState: recoveryAttempt.state,
+      };
+    }
     const simulatorTripId = `member-trip-${record.id}`;
     const nodeId = `member-flight-${record.id}`;
     const trip = provider.seedTrip(simulatorTripId, [{
@@ -102,6 +127,9 @@ export function createBookingService({ provider, store }) {
       flightNumber: flight.flightNumber,
       cabin: flight.cabin,
       price: record.total ?? record.quote.total,
+      refundable: flight.refundable,
+      departureOffsetHours: flight.segments?.[0]?.departureOffsetHours,
+      arrivalOffsetHours: flight.segments?.at(-1)?.arrivalOffsetHours,
       stops: flight.stops,
       durationMinutes: flight.durationMinutes,
       segments: structuredClone(flight.segments ?? []),
@@ -117,7 +145,8 @@ export function createBookingService({ provider, store }) {
     return {
       tripId: record.id,
       simulatorTripId,
-      disruption: { type, minutes: type === 'DELAYED' ? minutes : null },
+      recoveryId: recoveryAttempt.id,
+      disruption,
       node,
       simulatorTrip: trip,
     };
@@ -213,6 +242,7 @@ export function createBookingService({ provider, store }) {
     quote, book,
     simulateDisruption,
     list: async userId => (await store.listByUser(userId)).map(publicTrip),
+    ensureOwned: async (userId, id) => { await owned(userId, id); },
     get: async (userId, id) => publicTrip(await reconcile(await owned(userId, id))),
     track: async (userId, id) => {
       const record = await reconcile(await owned(userId, id));

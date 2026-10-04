@@ -61,3 +61,28 @@ export async function getTrip(id) {
   const { data } = await apiClient.get(`/trips/${encodeURIComponent(id)}`);
   return data.trip;
 }
+
+export async function simulateTripDisruption(id, type = 'CANCELLED') {
+  const { data } = await apiClient.post(`/trips/${encodeURIComponent(id)}/simulate-disruption`, { type });
+  return data;
+}
+
+export async function getRecoveryStatus(id) {
+  const { data } = await apiClient.get(`/trips/${encodeURIComponent(id)}/recovery`);
+  return data.recovery;
+}
+
+export async function runTripRecovery(id) {
+  const { data } = await apiClient.post(`/trips/${encodeURIComponent(id)}/recovery/run`);
+  return data.recovery;
+}
+
+export async function approveTripRecovery(id, fingerprint) {
+  const { data } = await apiClient.post(`/trips/${encodeURIComponent(id)}/recovery/approve`, { fingerprint });
+  return data.recovery;
+}
+
+export async function rejectTripRecovery(id, fingerprint) {
+  const { data } = await apiClient.post(`/trips/${encodeURIComponent(id)}/recovery/reject`, { fingerprint });
+  return data.recovery;
+}

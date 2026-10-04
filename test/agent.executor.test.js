@@ -8,25 +8,42 @@ import {
   OUTCOME,
   STATUS,
 } from '../src/agent/executor.js';
-import { DECISION, AUTONOMY, DEFAULT_POLICY } from '../src/agent/policy.js';
+import {
+  buildApprovalBinding, DECISION, AUTONOMY, DEFAULT_POLICY, POLICY_VERSION,
+} from '../src/agent/policy.js';
 
 const ORIGINAL = {
   bookingId: 'old-booking',
   cabin: 'ECONOMY',
-  arrivalTime: '2026-09-23T10:00:00',
+  origin: 'JFK', destination: 'LAX',
+  departureTime: '2026-09-23T06:00:00Z',
+  arrivalTime: '2026-09-23T10:00:00Z',
   price: { amount: 200, currency: 'USD' },
+  refundable: true,
+  segments: [{
+    origin: 'JFK', destination: 'LAX',
+    departureTime: '2026-09-23T06:00:00Z', arrivalTime: '2026-09-23T10:00:00Z',
+    departureOffsetHours: 0, arrivalOffsetHours: 0,
+  }],
 };
 
 function option(id, overrides = {}) {
-  return {
+  const result = {
     id,
     flightNumber: `DL${id}`,
     cabin: 'ECONOMY',
     origin: 'JFK', destination: 'LAX', departureTime: '2026-09-23T06:00:00',
     arrivalTime: '2026-09-23T12:00:00',
     price: { amount: 250, currency: 'USD' },
+    refundable: true,
     ...overrides,
   };
+  result.segments ??= [{
+    origin: result.origin, destination: result.destination,
+    departureTime: result.departureTime, arrivalTime: result.arrivalTime,
+    departureOffsetHours: 0, arrivalOffsetHours: 0,
+  }];
+  return result;
 }
 
 const AUTHORISED = {
@@ -331,6 +348,134 @@ test('a refreshed departure before readiness is rejected', async () => {
   assert.equal(result.status, STATUS.EXHAUSTED);
   assert.deepEqual(provider.calls, []);
 });
+
+test('a refreshed quote that changes the selected itinerary is not booked', async () => {
+  const provider = fakeProvider();
+  provider.prepareFlight = async ({ option: selected }) => ({
+    option: {
+      ...structuredClone(selected),
+      destination: 'SFO',
+      segments: [{
+        ...selected.segments[0],
+        destination: 'SFO',
+      }],
+    },
+  });
+
+  const result = await executeRecovery(base(provider, [option('changed-route')]));
+  assert.equal(result.status, STATUS.EXHAUSTED);
+  assert.deepEqual(provider.calls, []);
+  assert.match(result.attempts[0].detail, /lands at|differs from the selected/);
+});
+
+test('exact member approval authorizes one saved over-cap quote without refreshing it', async () => {
+  const selected = option('approved', { price: { amount: 700, currency: 'USD' } });
+  const preparedQuote = {
+    option: selected,
+    amount: '700.00',
+    currency: 'USD',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const approvalRequest = {
+    option: selected,
+    preparedQuote,
+    policyVersion: POLICY_VERSION,
+    binding: buildApprovalBinding({
+      option: selected,
+      policy: DEFAULT_POLICY,
+      quoteVersion: `${selected.offerId ?? selected.id}:${preparedQuote.expiresAt}`,
+    }),
+  };
+  const calls = [];
+  const booking = {
+    id: 'order-approved',
+    option: selected,
+    status: 'CONFIRMED',
+    sandbox: true,
+    metadata: { tripshield_booking_id: 'member-1', tripshield_recovery_key: 'trip-1:approved:1' },
+    total: selected.price,
+  };
+  const provider = {
+    async prepareFlight() { calls.push('REFRESH'); throw new Error('must use approved quote'); },
+    async bookFlight({ idempotencyKey, prepared }) {
+      calls.push('BOOK');
+      assert.equal(prepared, preparedQuote);
+      assert.equal(idempotencyKey, 'trip-1:approved:1');
+      return booking;
+    },
+    async getBooking(id) { calls.push('CONFIRM'); return id === booking.id ? booking : {
+      id: ORIGINAL.bookingId, status: 'CONFIRMED', sandbox: true,
+      metadata: { tripshield_booking_id: 'member-1' },
+    }; },
+    async cancelBooking() { calls.push('RELEASE'); return { status: 'CANCELLED' }; },
+  };
+  const durableRecovery = {
+    record: { memberTripId: 'member-1', state: 'APPROVED' },
+    checkpoint: async state => { calls.push(`CHECKPOINT:${state}`); },
+  };
+  const approvedRecovery = {
+    approvalRequest,
+    policyVersion: POLICY_VERSION,
+    approvedAt: new Date().toISOString(),
+    approvedBy: 'member-1',
+  };
+  const result = await executeRecovery(base(provider, [{ option: selected }], {
+    original: { ...ORIGINAL, origin: 'JFK', destination: 'LAX', refundable: true },
+    decision: { decision: DECISION.ESCALATE, actions: [], escalations: [{ action: 'REBOOK_FLIGHT' }] },
+    durableRecovery,
+    approvedRecovery,
+    bookingPassenger: { given_name: 'Test' },
+  }));
+  assert.equal(result.status, STATUS.RECOVERED, JSON.stringify(result));
+  assert.deepEqual(calls.filter(call => ['REFRESH', 'BOOK', 'CONFIRM', 'RELEASE'].includes(call)),
+    ['BOOK', 'CONFIRM', 'CONFIRM', 'RELEASE']);
+  assert.ok(result.audit.some(entry => entry.authorisedBy === 'MEMBER_APPROVAL'));
+});
+
+for (const [name, invalidate] of [
+  ['fingerprint mismatch', request => { request.binding.fingerprint = 'f'.repeat(64); }],
+  ['expired quote', request => { request.preparedQuote.expiresAt = new Date(Date.now() - 1_000).toISOString(); }],
+  ['policy drift', (request, policy) => { policy.maxArrivalDelayHours -= 1; }],
+]) {
+  test(`member approval rejects ${name} before any provider call`, async () => {
+    const selected = option('stale-approval', { price: { amount: 700, currency: 'USD' } });
+    const preparedQuote = {
+      option: selected,
+      amount: '700.00',
+      currency: 'USD',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const approvalRequest = {
+      option: selected,
+      preparedQuote,
+      policyVersion: POLICY_VERSION,
+      binding: buildApprovalBinding({
+        option: selected,
+        policy: DEFAULT_POLICY,
+        quoteVersion: `${selected.id}:${preparedQuote.expiresAt}`,
+      }),
+    };
+    const policy = structuredClone(DEFAULT_POLICY);
+    invalidate(approvalRequest, policy);
+    const provider = {
+      async prepareFlight() { assert.fail('stale approvals must not refresh or buy'); },
+      async bookFlight() { assert.fail('stale approvals must not buy'); },
+      async getBooking() { assert.fail('stale approvals must not look up orders'); },
+    };
+    const result = await executeRecovery(base(provider, [{ option: selected }], {
+      original: { ...ORIGINAL, refundable: true },
+      decision: { decision: DECISION.ESCALATE, actions: [], escalations: [{ action: 'REBOOK_FLIGHT' }] },
+      approvedRecovery: {
+        approvalRequest,
+        policyVersion: POLICY_VERSION,
+        approvedAt: new Date().toISOString(),
+        approvedBy: 'member-1',
+      },
+      policy,
+    }));
+    assert.equal(result.status, STATUS.NOTHING_AUTHORISED);
+  });
+}
 
 test('a provider without independent confirmation is rejected before purchase', async () => {
   const provider = fakeProvider();

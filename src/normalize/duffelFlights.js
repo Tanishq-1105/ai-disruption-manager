@@ -33,7 +33,8 @@ function normalizeOffer(offer, index) {
     durationMinutes: isoDurationToMinutes(slice.duration),
     stops: segments.length - 1,
     segments,
-    cabin: (rawSegments[0]?.passengers?.[0]?.cabin_class ?? 'economy').toUpperCase(),
+    cabin: rawSegments[0]?.passengers?.[0]?.cabin_class?.toUpperCase(),
+    refundable: refundableOffer(offer),
     price: {
       amount: Number(offer.total_amount),
       currency: offer.total_currency,
@@ -44,6 +45,13 @@ function normalizeOffer(offer, index) {
     // normalizer's reasoning.
     _index: index,
   };
+}
+
+function refundableOffer(offer) {
+  const condition = offer?.conditions?.refund_before_departure;
+  if (condition?.allowed !== true) return condition?.allowed === false ? false : undefined;
+  const penalty = Number(condition.penalty_amount ?? 0);
+  return Number.isFinite(penalty) && penalty === 0;
 }
 
 function normalizeSegment(segment) {

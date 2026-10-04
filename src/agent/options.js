@@ -16,7 +16,7 @@
 //    member's consent. Dropping it here would quietly remove a choice that is
 //    theirs to make, so it is ranked like anything else and Phase 5 escalates.
 
-import { toUtcMinutes } from '../normalize/plausibility.js';
+import { assessItinerary, toUtcMinutes } from '../normalize/plausibility.js';
 
 // Higher index means a better cabin, so a downgrade is a negative delta.
 export const CABIN_RANK = ['ECONOMY', 'PREMIUM_ECONOMY', 'BUSINESS', 'FIRST'];
@@ -92,6 +92,36 @@ export function viabilityIssues(option, context = {}) {
     issues.push(`lands at ${option.destination}, not ${context.requiredDestination}`);
   }
 
+  if (context.requiredOrigin && option.origin !== context.requiredOrigin) {
+    issues.push(`departs from ${option.origin}, not ${context.requiredOrigin}`);
+  }
+
+  const segments = option.segments;
+  if (!Array.isArray(segments) || segments.length === 0) {
+    issues.push('itinerary segments are missing');
+  } else {
+    if (segments[0].origin !== option.origin || segments.at(-1).destination !== option.destination) {
+      issues.push('itinerary segments do not match the stated origin and destination');
+    }
+    if (Number.isFinite(option.stops) && option.stops !== segments.length - 1) {
+      issues.push('stop count does not match the itinerary segments');
+    }
+    for (let index = 1; index < segments.length; index += 1) {
+      if (segments[index - 1].destination !== segments[index].origin) {
+        issues.push(`segment ${index + 1} does not connect to the preceding segment`);
+        break;
+      }
+    }
+    const physical = assessItinerary(option);
+    issues.push(...physical.issues.map(issue => `invalid itinerary: ${issue}`));
+    if (departureUtcMinutes({ ...option, departureTime: segments[0].departureTime, segments })
+          !== departure
+        || arrivalUtcMinutes({ ...option, arrivalTime: segments.at(-1).arrivalTime, segments })
+          !== arrival) {
+      issues.push('itinerary segment times do not match the stated schedule');
+    }
+  }
+
   if (Array.isArray(context.acceptableDestinations)
       && context.acceptableDestinations.length > 0
       && !context.acceptableDestinations.includes(option.destination)) {
@@ -163,7 +193,8 @@ export function scoreOption(option, context = {}) {
   // --- price ------------------------------------------------------------
   const optionPrice = option.price?.amount;
   const originalPrice = original.price?.amount;
-  if (Number.isFinite(optionPrice) && Number.isFinite(originalPrice)) {
+  if (Number.isFinite(optionPrice) && Number.isFinite(originalPrice)
+      && option.price?.currency === original.price?.currency) {
     const currency = option.price?.currency ?? '';
     const delta = optionPrice - originalPrice;
     if (delta > 0) {
@@ -175,6 +206,8 @@ export function scoreOption(option, context = {}) {
     // Never let an unpriced option win by default just because it scored no
     // price penalty — say so, loudly, in the record.
     breakdown.push({ factor: 'price', points: 0, detail: 'option has no price; not comparable' });
+  } else {
+    breakdown.push({ factor: 'price', points: 0, detail: 'currencies differ; not comparable' });
   }
 
   const total = round(breakdown.reduce((sum, item) => sum + item.points, 0));
@@ -227,7 +260,9 @@ export function rankOptions(options = [], context = {}) {
     // total and never depends on the order the provider happened to return.
     .sort((a, b) => (
       a.total - b.total
-      || (a.option.price?.amount ?? Infinity) - (b.option.price?.amount ?? Infinity)
+      || (a.option.price?.currency === b.option.price?.currency
+        ? (a.option.price?.amount ?? Infinity) - (b.option.price?.amount ?? Infinity)
+        : 0)
       || (departureUtcMinutes(a.option) ?? Infinity) - (departureUtcMinutes(b.option) ?? Infinity)
       || String(a.option.id).localeCompare(String(b.option.id))
     ));

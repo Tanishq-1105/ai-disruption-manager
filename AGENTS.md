@@ -7,7 +7,7 @@
 For the latest session status, verification results, open issues, and prioritized
 work plan, read [SESSION_STATUS.md](./SESSION_STATUS.md) next.
 
-Last context update: 2026-09-13
+Last context update: 2026-10-04
 
 ## Source-of-truth order
 
@@ -94,22 +94,57 @@ directly on Sabre or simulator implementations.
   reconciliation of ambiguous order outcomes without another purchase.
 - Track reads the saved Duffel order and airline-initiated schedule changes.
   It does not fabricate live flight status or accept schedule changes.
+- The backend polls confirmed Duffel sandbox orders every five minutes by
+  default. A Duffel-reported cancelled order creates a durable recovery attempt
+  and enters the existing policy/recovery flow; policy escalations still await
+  approval. Polling requires Duffel booking and a `duffel_test_` token, and can
+  be disabled with `MEMBER_RECOVERY_POLLING=false`. This does not provide a
+  general flight-status feed or automatically react to delay/schedule changes.
+  Duffel's order status does not identify who initiated cancellation, so this
+  sandbox poller cannot distinguish airline cancellation from an external
+  manual cancellation.
+- For local rehearsal only, `POST /simulator/member-bookings/test-disruption`
+  creates a durable synthetic cancellation for one confirmed sandbox trip and
+  immediately sends it through the same member recovery flow. It is loopback-
+  only, disabled in production, and requires enabled polling plus a Duffel test
+  token. The localhost Member bookings panel exposes this per-trip action only
+  when the backend reports that it is enabled. An automatic policy decision may
+  create a Duffel sandbox replacement.
 - Four mobile tabs: Home, Trips, Track, You; locally stored autonomy/notification
   preferences. No History tab and no duplicate parent/child screen names.
+- Trip Details can simulate a sandbox disruption, run/reconcile member recovery,
+  and show the exact replacement terms for explicit approval or rejection.
+  Approval is owner-scoped, expires with the prepared quote, and authorizes only
+  that exact sandbox offer; the screen explains that it is not a live ticket.
+  It also displays the durable, redacted recovery event timeline.
 
 The localhost control panel can now query confirmed Duffel sandbox member
 bookings by exact airline and flight number, simulate a cancellation or delay
 for all matching passengers, and run the existing safe recovery independently
 per passenger. A saved member trip is updated only after the replacement is
-independently confirmed. Recovery claims/checkpoints for this batch remain
-process-local and are the next hardening task.
+independently confirmed. The localhost panel displays the updated sandbox order
+ID, booking reference, itinerary, and fare. Member recovery carries the saved
+passenger and booking ownership metadata into the replacement Duffel order, and
+the saved-trip update compares against the original order ID and revision.
+The Member bookings panel can locally approve the exact persisted escalated
+quote for testing; this explicit local tester action is recorded separately
+from member consent and is disabled for non-loopback requests and production
+runtime.
+Member recovery attempts, event identity, leases, exact authorized quotes,
+idempotency keys, order confirmations/releases, and trip-update checkpoints
+are stored in Mongo. Recovery resumes uncertain order requests by read-only
+reconciliation; it does not repeat the order POST. Policy escalations that are
+explicitly approvable pause for a durable, owner-scoped member decision. Approval
+is fingerprint-bound to the exact quote, expiry, itinerary, fare and policy;
+changed/expired terms cannot authorize a purchase.
 
 ### Not implemented yet
 
 - A real booking/payment/ticketing API for production. Duffel's sandbox covers
   the booking path in test mode; no live ticketing adapter exists.
-- Durable recovery claims/checkpoints and restart reconciliation for the new
-  persisted-member recovery bridge.
+- Actual phone rehearsal of the member disruption-to-approval flow and live
+  Duffel sandbox verification. Automated route/resume fault coverage is in the
+  test suite; no live order is created by tests.
 - Automatic monitoring of member trips and a general live flight-status feed.
 - LangGraph orchestration.
 - PostgreSQL trip/audit storage and Redis search caching described by the
@@ -150,9 +185,10 @@ the preceding request completes. Pending attempts are scoped to that simulator
 flight node; a completed attempt is cleared only after the replacement is saved.
 A later cancellation of the replacement can start a new recovery. A failed graph
 update can reuse the already confirmed purchase without repeating booking/release.
-These protections and Duffel's in-flight/ambiguous-result cache remain process-local;
-durable recovery claims and restart reconciliation are not implemented. Do not
-restart or reseed to clear an unresolved order: inspect/reconcile it first.
+The simulator graph and Duffel adapter's in-flight cache remain process-local.
+Persisted-member recovery has Mongo claims/checkpoints and restart
+reconciliation; unresolved orders are reconciled read-only, never by repeating
+the purchase POST.
 Member checkout has its own durable Mongo request state, described below.
 
 ## Architecture at a glance
@@ -189,6 +225,14 @@ Current member booking flow:
 sign in -> server refreshes offer -> review fare/passenger -> explicit confirmation
   -> atomic Mongo request claim -> recheck fare/itinerary -> Duffel test order
   -> independent order lookup -> saved Protected Trip -> Track order/changes
+```
+
+Current automatic member-recovery trigger:
+
+```text
+backend startup -> poll confirmed Duffel sandbox orders -> verified cancellation
+  -> durable recovery attempt -> existing policy and recovery flow
+  -> automatic action if authorized, otherwise wait for member approval
 ```
 
 Current simulator flow:
@@ -238,6 +282,20 @@ Default policy intent from the product vision:
 - Escalate cost-cap violations, overnight stays, cabin downgrades,
   non-refundable changes, and trip cancellation/refund.
 
+Automatic flight recovery additionally fails closed on unknown cabin or
+refundability, missing schedules/time-zone offsets, invalid fare/currency or
+policy limits, and mismatched origin/destination. Candidate itineraries must
+have connected segments consistent with the stated endpoints, stops and
+schedule. A refreshed quote must preserve the selected itinerary and exact
+prepared fare; fallback is allowed only after a definitive `NOT_CREATED`
+outcome and each candidate is re-authorized. Same-day checks compare arrival
+dates in the destination's local offset, not UTC date strings. For member
+recovery, the current policy version and exact prepared quote terms are
+fingerprinted and persisted before approval is requested. An authenticated
+owner can approve or reject the request; stale terms require a fresh quote and
+another explicit confirmation. Unknown/missing data and structural safety
+failures remain non-overridable.
+
 ## Repository map
 
 ```text
@@ -263,7 +321,8 @@ Default policy intent from the product vision:
 |   |   |-- executor.js           Phase 6 safe executor (provider injected)
 |   |   |-- notifier.js           pure member-message composer
 |   |   `-- recovery.js           orchestrates phases 2-6
-|   |-- bookings/                member quote, checkout, validation, reconciliation
+|   |-- bookings/                member checkout, recovery, and sandbox monitoring
+|   |   `-- memberRecoveryMonitor.js  automatic Duffel cancellation poller
 |   |-- simulator/
 |   |   |-- state.js              in-memory trips/bookings/idempotency/fail flag
 |   |   `-- demoTrip.js           linked demo fixture
@@ -337,6 +396,9 @@ SEARCH_PROVIDER=duffel
 BOOKING_PROVIDER=duffel
 STATUS_PROVIDER=duffel
 DUFFEL_ACCESS_TOKEN=
+MEMBER_RECOVERY_POLLING=true
+MEMBER_RECOVERY_POLL_INTERVAL_MS=300000
+MEMBER_RECOVERY_POLL_BATCH_SIZE=100
 SABRE_CLIENT_ID=
 SABRE_CLIENT_SECRET=
 SABRE_BASE_URL=https://api-crt.cert.havail.sabre.com
@@ -423,6 +485,11 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `GET /trips` | Required | Own saved bookings, newest first; excludes unsubmitted quotes and definitive failures |
 | `GET /trips/:id` | Required | Own trip; reconciles pending/ambiguous order outcomes |
 | `GET /trips/:id/tracking` | Required | Reads own Duffel order and airline-initiated changes; no mock fallback |
+| `POST /trips/:id/simulate-disruption` | Required | Owner-scoped sandbox-only cancellation or delay simulation, persisted as a recovery attempt |
+| `GET /trips/:id/recovery` | Required | Reads the owner's durable recovery state, redacted ordered events, and sanitized approval offer; returns `{ recovery: null }` before a disruption |
+| `POST /trips/:id/recovery/run` | Required | Runs or read-only reconciles saved-trip recovery; pauses for member approval when needed |
+| `POST /trips/:id/recovery/approve` | Required | Owner approves exact unexpired quote/policy fingerprint and recovery executes |
+| `POST /trips/:id/recovery/reject` | Required | Owner declines the exact pending recovery approval |
 | `GET /tracking/:flightNumber` | None | Default 501 `SAVED_TRIP_REQUIRED`; explicit Sabre mode attempts status and returns 503 if unavailable |
 | `GET /history` | Required | Current user's searches, newest first |
 | `POST /simulator/demo/seed` | None | Seeds `demo-trip` fixture |
@@ -431,8 +498,10 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `POST /simulator/trips/:tripId/flights/:flightId/delay` | None | Sets delay and projected arrival from `{ minutes }` |
 | `POST /simulator/bookings/fail-next` | None | Arms one new booking failure through either active adapter; cached retries do not consume it |
 | `GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123` | None | Lists confirmed sandbox member bookings for an exact flight |
+| `POST /simulator/member-bookings/test-disruption` | Local non-production only | Creates a synthetic cancellation for one saved sandbox trip and runs the poller recovery path; may create a Duffel test order |
 | `POST /simulator/member-bookings/disrupt` | None | Simulates cancellation or delay for every confirmed matching passenger |
-| `POST /simulator/member-bookings/recover` | None | Runs safe recovery independently for affected member trips and updates saved trips after confirmation |
+| `POST /simulator/member-bookings/recover` | None | Runs safe recovery independently for affected member trips and updates saved trips after confirmation; does not override member approval |
+| `POST /simulator/member-bookings/approve` | Local non-production only | Approves the exact unexpired persisted quote for one matching member trip; loopback-only and audited as `LOCAL_BACKEND_TESTER` |
 | `GET /simulator/trips/:tripId/analyse` | None | Returns Watcher events and impact arrays |
 | `POST /simulator/trips/:tripId/recover` | None | Runs the whole loop: detect, assess, search real alternatives, score, apply policy, book safely; returns ranked options, the decision, execution attempts, the audit trail, plus `recoveryId` and `auditPersisted` |
 | `GET /simulator/trips/:tripId/audit` | None | The durable audit trail for one trip, newest first |
@@ -484,9 +553,10 @@ the authenticated mobile tabs require a valid bearer token.
   It returns booking status, checked/synced timestamps and previous/new schedules;
   reading does not accept a change or trigger recovery. It does not establish
   boarding, landed or on-time status. A general flight-number feed remains absent.
-- Recovery now has its own refreshed-offer and confirmation checks, but its
-  pending state remains process-local. Member checkout's Mongo claims do not
-  provide durable idempotency to the separate recovery executor.
+- Persisted-member recovery now has a separate Mongo claim/checkpoint store;
+  member checkout claims do not serve as recovery idempotency. Simulator-demo
+  recovery remains process-local. See SESSION_STATUS.md for current recovery
+  limitations and the next hardening work.
 
 ## Data shapes
 
@@ -778,9 +848,9 @@ as part of normal development.
 - Never read, print, or commit root/mobile `.env` values.
 - Do not confuse the planned PostgreSQL/Redis architecture with the current
   Mongo-plus-memory implementation.
-- Do not infer durable recovery or automatic member monitoring from the tested
-  simulator flow. Pending recovery state remains process-local; persisted member
-  trips are not yet connected. See outstanding work in SESSION_STATUS.md.
+- Do not infer automatic member monitoring from the simulator flow. Disruptions
+  are manually injected; persisted-member recovery checkpoints are durable but
+  external flight monitoring is not implemented. See SESSION_STATUS.md.
 - Do not call a build/test pass proof of working Sabre credentials or Mongo.
 - Do not change Sabre endpoints based only on generic provider docs; confirm
   which products this exact trial account has provisioned.
@@ -795,8 +865,8 @@ as part of normal development.
 Follow the checkboxes and session plan in [SESSION_STATUS.md](./SESSION_STATUS.md).
 Phases 4–6, durable audit storage, authenticated member sandbox checkout,
 persisted trips, and connected mobile booking/tracking already exist. Review
-phone/UI feedback, then add durable recovery claims and integrate saved policy
-and member trips with recovery. Production services and additional
+policy edge cases and approval handling, strengthen durable recovery crash
+coverage, and connect recovery results to the member UI. Production services and additional
 orchestration remain deferred.
 
 ## How to work efficiently in future chats

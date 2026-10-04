@@ -11,7 +11,7 @@ import { normalizeDuffelOffers, normalizeSeatMap } from '../normalize/duffelFlig
 // Duffel's order idempotency header does not return the original order on a
 // repeat POST. Cache in-flight promises, returned orders and ambiguous errors
 // locally; metadata allows read-only reconciliation after a lost response.
-// Durable recovery claims remain separate work before member-trip integration.
+// Persisted-member recovery also records durable claims and checkpoints.
 const ordersByIdempotencyKey = new Map();
 
 const ALREADY_BOOKED = new Set(['offer_request_already_booked', 'offer_already_booked']);
@@ -40,14 +40,15 @@ export async function getSeatMap(offerId) {
 }
 
 /** Refresh before policy is evaluated; bookFlight consumes this exact quote. */
-export async function prepareFlight({ option }) {
+export async function prepareFlight({ option, passenger }) {
   const offerId = option?.offerId ?? option?.id;
   if (!offerId) throw new Error('option has no Duffel offer id');
   const offer = await duffel.getOffer(offerId, requestOptions());
   const [refreshed] = normalizeDuffelOffers([offer]);
-  if (offer.id !== offerId || !refreshed || offer.slices?.length !== 1
+  if (offer.id !== offerId || offer.live_mode !== false || !refreshed || offer.slices?.length !== 1
       || (config.duffel.airwaysOnly && refreshed.airline !== config.duffel.airlineCode)
-      || offer.passengers?.length !== 1 || !offer.passengers[0].id
+      || offer.passengers?.length !== 1 || !offer.passengers[0].id || offer.passengers[0].type !== 'adult'
+      || (offer.passenger_identity_documents_required === true && !passenger?.identity_documents?.length)
       || typeof offer.total_amount !== 'string' || !/^\d+(?:\.\d{1,4})?$/.test(offer.total_amount)
       || !/^[A-Z]{3}$/.test(offer.total_currency)
       || !Number.isFinite(Date.parse(offer.expires_at)) || Date.parse(offer.expires_at) <= Date.now()) {
@@ -65,6 +66,8 @@ function orderBooking(order, { tripId, option } = {}) {
     status: order.cancelled_at ? 'CANCELLED'
       : order.booking_reference && order.payment_status?.awaiting_payment === false ? 'CONFIRMED' : 'PENDING',
     bookingReference: order.booking_reference ?? null,
+    sandbox: order.live_mode === false,
+    metadata: order.metadata ?? {},
     total: { amount: typeof order.total_amount === 'string' && /^\d+(?:\.\d{1,4})?$/.test(order.total_amount)
       ? Number(order.total_amount) : NaN, currency: order.total_currency },
     createdAt: order.created_at ?? new Date().toISOString(), provider: 'duffel',
@@ -87,7 +90,7 @@ export async function bookFlight(request, { beforeBooking } = {}) {
   }
 }
 
-async function createBooking({ tripId, option, prepared, idempotencyKey }, beforeBooking) {
+async function createBooking({ tripId, option, prepared, idempotencyKey, passenger, metadata }, beforeBooking) {
   let quote;
   try {
     beforeBooking?.();
@@ -103,8 +106,8 @@ async function createBooking({ tripId, option, prepared, idempotencyKey }, befor
   try {
     order = await duffel.createOrder({
       offerId: quote.option.offerId, amount: quote.amount, currency: quote.currency,
-      passengerId: quote.passengerId, passenger: TEST_PASSENGER, idempotencyKey,
-      metadata: { tripshield_recovery_key: idempotencyKey },
+      passengerId: quote.passengerId, passenger: passenger ?? TEST_PASSENGER, idempotencyKey,
+      metadata: { ...metadata, tripshield_recovery_key: idempotencyKey },
     }, requestOptions());
   } catch (error) {
     error.bookingOutcome = [400, 401, 402, 403, 404, 410, 422].includes(error.status)

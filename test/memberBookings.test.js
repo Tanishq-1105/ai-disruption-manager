@@ -4,11 +4,16 @@ import express from 'express';
 import { createBookingService } from '../src/bookings/service.js';
 import { createBookingRouter } from '../src/routes/bookings.js';
 import * as store from '../src/store/memberTrips.js';
+import * as recoveryAttempts from '../src/store/recoveryAttempts.js';
+import { getMemberRecoveryStatus } from '../src/bookings/memberRecovery.js';
 import { closeMongo } from '../src/store/mongo.js';
 import { signToken } from '../src/auth/tokens.js';
 import trackingRouter from '../src/routes/tracking.js';
 
-beforeEach(() => store._resetForTests());
+beforeEach(async () => {
+  await store._resetForTests();
+  await recoveryAttempts._resetForTests();
+});
 after(() => closeMongo());
 
 const passenger = { title: 'mr', gender: 'm', given_name: 'Test', family_name: 'Traveller',
@@ -76,6 +81,24 @@ test('owner can simulate a cancellation on a confirmed sandbox trip', async () =
   assert.equal(disruptions[0].action, 'seed');
   assert.equal(disruptions[1].action, 'cancel');
   assert.equal(disruptions[0].nodes[0].bookingId, 'ord_test001');
+  const status = await getMemberRecoveryStatus({ userId: 'member-a', memberTripId: trip.id });
+  assert.equal(status.state, 'DISRUPTION_SIMULATED');
+  assert.equal(await getMemberRecoveryStatus({ userId: 'member-b', memberTripId: trip.id }), null);
+});
+
+test('poll-triggered disruption rejects a stale original order ID', async () => {
+  const { service, disruptions } = setup();
+  const quote = await service.quote({ userId: 'member-a', offerId: 'off_test001' });
+  const trip = await service.book(requestFor(quote));
+
+  await assert.rejects(
+    service.simulateDisruption({
+      userId: 'member-a', id: trip.id, type: 'CANCELLED',
+      source: 'DUFFEL_POLL', expectedOrderId: 'ord_stale',
+    }),
+    error => error.code === 'TRIP_CHANGED',
+  );
+  assert.deepEqual(disruptions, []);
 });
 
 test('disruption simulation is owner-scoped and validates delay input', async () => {
@@ -282,6 +305,96 @@ test('HTTP routes require auth, preserve public routes, and scope reads to the t
     assert.equal((await call(`/trips/${quote.id}`, 'member-b')).status, 404);
     assert.equal((await call(`/trips/${quote.id}/tracking`, 'member-b')).status, 404);
     assert.equal((await call(`/trips/${quote.id}`, 'member-a')).status, 200);
+    const noRecovery = await call(`/trips/${quote.id}/recovery`, 'member-a');
+    assert.equal(noRecovery.status, 200);
+    assert.equal((await noRecovery.json()).recovery, null);
+    assert.equal((await call(`/trips/${quote.id}/recovery`, 'member-b')).status, 404);
+    assert.equal((await call('/trips/missing-trip/recovery', 'member-a')).status, 404);
+    assert.equal((await call(`/trips/${quote.id}/recovery/run`, null, {})).status, 401);
+    const booked = await service.book(requestFor(quote));
+    await service.simulateDisruption({ userId: 'member-a', id: booked.id, type: 'CANCELLED' });
+    const ownRecovery = await call(`/trips/${quote.id}/recovery`, 'member-a');
+    assert.equal((await ownRecovery.json()).recovery.state, 'DISRUPTION_SIMULATED');
+    const otherRecovery = await call(`/trips/${quote.id}/recovery`, 'member-b');
+    assert.equal(otherRecovery.status, 404);
+
+    const attempt = await recoveryAttempts.getLatestForMemberTrip({
+      memberTripId: quote.id, userId: 'member-a',
+    });
+    await recoveryAttempts.claim(attempt.recoveryKey, 'route-test');
+    await recoveryAttempts.checkpoint(attempt.recoveryKey, 'route-test', 'BOOKING_REQUESTED', {}, {
+      action: 'BOOKING_REQUESTED',
+      detail: 'replacement order requested',
+      idempotencyKey: 'private-idempotency-key',
+    });
+    await recoveryAttempts.releaseClaim(attempt.recoveryKey, 'route-test');
+    const timelineResponse = await call(`/trips/${quote.id}/recovery`, 'member-a');
+    const timeline = (await timelineResponse.json()).recovery;
+    assert.equal(timeline.events.length, 2);
+    assert.equal(timeline.events[1].action, 'BOOKING_REQUESTED');
+    assert.equal('idempotencyKey' in timeline.events[1], false);
+
+    assert.equal((await call(`/trips/${quote.id}/recovery/approve`, 'member-a', { fingerprint: 'x' })).status, 400);
     assert.equal((await call('/bookings/quote', 'member-a', { offerId: '../orders' })).status, 400);
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('recovery endpoints route owner identity and handle stale approvals', async () => {
+  const { service } = setup();
+  const calls = [];
+  const recoveryController = {
+    async getMemberRecoveryStatus(args) {
+      calls.push({ route: 'status', ...args });
+      return { recoveryId: 'recovery-1', state: 'DISRUPTION_SIMULATED', events: [] };
+    },
+    async recoverMemberTrip(args) {
+      calls.push({ route: 'run', ...args });
+      return args.approvalFingerprint === 'f'.repeat(64)
+        ? { status: 'STALE_APPROVAL', detail: 'quote changed' }
+        : { status: 'RECOVERED' };
+    },
+    async rejectMemberRecovery(args) {
+      calls.push({ route: 'reject', ...args });
+      return { state: 'REJECTED' };
+    },
+  };
+  const app = express();
+  app.use(express.json());
+  app.use(createBookingRouter(service, recoveryController));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = (path, user, body) => fetch(`${base}${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      ...(user ? { Authorization: `Bearer ${signToken({ sub: user, email: 'test@example.com' })}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const tripId = 'member-trip-1';
+  const fingerprint = 'a'.repeat(64);
+  try {
+    assert.equal((await call(`/trips/${tripId}/recovery`, null)).status, 401);
+    assert.equal((await call(`/trips/${tripId}/recovery/run`, null, {})).status, 401);
+
+    const status = await call(`/trips/${tripId}/recovery`, 'member-a');
+    assert.equal((await status.json()).recovery.state, 'DISRUPTION_SIMULATED');
+    assert.equal((await call(`/trips/${tripId}/recovery/run`, 'member-a', {})).status, 200);
+    assert.equal((await call(`/trips/${tripId}/recovery/approve`, 'member-a', {
+      fingerprint: 'f'.repeat(64),
+    })).status, 409);
+    assert.equal((await call(`/trips/${tripId}/recovery/approve`, 'member-a', {
+      fingerprint,
+    })).status, 200);
+    const rejected = await call(`/trips/${tripId}/recovery/reject`, 'member-a', { fingerprint });
+    assert.equal((await rejected.json()).recovery.state, 'REJECTED');
+
+    assert.ok(calls.every(entry => entry.userId === 'member-a'));
+    assert.equal(calls[2].approvalFingerprint, 'f'.repeat(64));
+    assert.equal(calls[3].approvalFingerprint, fingerprint);
+    assert.equal(calls[4].approvalFingerprint, fingerprint);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });

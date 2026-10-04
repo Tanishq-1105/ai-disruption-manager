@@ -1,5 +1,14 @@
 import 'dotenv/config';
 
+function positiveInteger(value, fallback, name, maximum) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new Error(`${name} must be a positive integer no greater than ${maximum}`);
+  }
+  return parsed;
+}
+
 export const config = {
   port: Number(process.env.PORT) || 4001,
   sabre: {
@@ -37,6 +46,17 @@ export const config = {
     search: process.env.SEARCH_PROVIDER || 'duffel',
     booking: process.env.BOOKING_PROVIDER || 'duffel',
     status: process.env.STATUS_PROVIDER || 'duffel',
+  },
+  memberRecoveryPolling: {
+    enabled: process.env.MEMBER_RECOVERY_POLLING?.toLowerCase() !== 'false',
+    intervalMs: positiveInteger(
+      process.env.MEMBER_RECOVERY_POLL_INTERVAL_MS, 300_000,
+      'MEMBER_RECOVERY_POLL_INTERVAL_MS', 2_147_483_647,
+    ),
+    batchSize: positiveInteger(
+      process.env.MEMBER_RECOVERY_POLL_BATCH_SIZE, 100,
+      'MEMBER_RECOVERY_POLL_BATCH_SIZE', 1_000,
+    ),
   },
 
   // The member's autonomy limit. Currency must match what the active search

@@ -24,6 +24,8 @@ let currentTripId = null;
 let pollTimer = null;
 let memberQuery = null;
 let memberTripIds = [];
+let localApprovalEnabled = false;
+let localTestDisruptionEnabled = false;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -49,6 +51,12 @@ function showToast(message) {
   els.toast.textContent = message;
   els.toast.classList.add('visible');
   setTimeout(() => els.toast.classList.remove('visible'), 2200);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
 }
 
 function fmtTime(iso) {
@@ -82,7 +90,9 @@ function nodeMeta(node) {
       const arrival = node.projectedArrival
         ? `${fmtTime(node.projectedArrival)} (was ${fmtTime(node.scheduledArrival)})`
         : fmtTime(node.scheduledArrival);
-      return `Departs ${fmtTime(node.scheduledDeparture)} · Arrives ${arrival}`;
+      const booking = node.bookingReference || node.bookingId;
+      return `Departs ${fmtTime(node.scheduledDeparture)} · Arrives ${arrival}`
+        + (booking ? ` · Booking ${booking}` : '');
     }
     case 'HOTEL':
       return `${fmtTime(node.checkIn)} → ${fmtTime(node.checkOut)}`;
@@ -250,59 +260,91 @@ async function delayFlight(nodeId, minutes) {
   } catch (err) {
     setStatus('error', err.message);
   }
+}
 
-  function renderMemberBookings(payload) {
-    if (!payload.results.length) {
-      els.memberBookings.innerHTML = '<p class="empty-state">No confirmed sandbox bookings found for this flight.</p>';
-      return;
-    }
-    const actions = `<div class="member-actions">
-      <button class="btn btn-small btn-warning" data-action="member-cancel">Simulate cancellation for all ${payload.count} passenger(s)</button>
-      <button class="btn btn-small" data-action="member-delay">Simulate 90-minute delay for all</button>
-    </div>`;
-    els.memberBookings.innerHTML = actions + payload.results.map((trip) => `
-      <div class="node-card">
-        <div class="node-head"><span class="type-badge type-FLIGHT">PASSENGER</span><span class="status-badge status-CONFIRMED">${trip.status}</span></div>
-        <div class="node-title">${trip.passengerName || 'Passenger'} · ${trip.flight.flightNumber}</div>
-        <div class="node-meta">${trip.flight.origin} → ${trip.flight.destination} · ${fmtTime(trip.flight.departureTime)} · ${trip.bookingReference || trip.orderId}</div>
-      </div>`).join('');
+function renderMemberBookings(payload) {
+  localApprovalEnabled = payload.localApprovalEnabled === true;
+  localTestDisruptionEnabled = payload.localTestDisruptionEnabled === true;
+  if (!payload.results.length) {
+    els.memberBookings.innerHTML = '<p class="empty-state">No confirmed sandbox bookings found for this flight.</p>';
+    return;
   }
+  const actions = `<div class="member-actions">
+    <button class="btn btn-small btn-warning" data-action="member-cancel">Simulate cancellation for all ${payload.count} passenger(s)</button>
+    <button class="btn btn-small" data-action="member-delay">Simulate 90-minute delay for all</button>
+    ${localTestDisruptionEnabled ? '<span class="muted">Per-trip test runs the automatic recovery path; it may create a Duffel sandbox order.</span>' : ''}
+  </div>`;
+  els.memberBookings.innerHTML = actions + payload.results.map((trip) =>
+    renderMemberTripCard(trip, trip.recovery)).join('');
+}
 
-  async function findMemberBookings() {
-    const airline = els.memberAirline.value.trim().toUpperCase();
-    const flightNumber = els.memberFlight.value.trim().toUpperCase();
-    try {
-      const payload = await api(`/simulator/member-bookings?airline=${encodeURIComponent(airline)}&flightNumber=${encodeURIComponent(flightNumber)}`);
-      memberQuery = payload.query;
-      memberTripIds = payload.results.map((trip) => trip.id);
-      renderMemberBookings(payload);
-      showToast(`Found ${payload.count} confirmed passenger(s).`);
-    } catch (err) {
-      setStatus('error', err.message);
-    }
+function renderLocalApproval(tripId, recovery) {
+  const approval = recovery?.approval;
+  if (!localApprovalEnabled || recovery?.state !== 'AWAITING_APPROVAL'
+      || !approval?.binding?.fingerprint) return '';
+  const option = approval.option;
+  const summary = `${option.flightNumber} · ${option.origin} → ${option.destination}; `
+    + `${approval.total.amount} ${approval.total.currency}; `
+    + recovery.approval.violations.map(issue => issue.detail).join('; ');
+  return `<div class="recovery-section">
+    <h3>Member approval required (local test)</h3>
+    <div class="node-meta">${escapeHtml(summary)}</div>
+    <div class="node-meta">Quote expires ${escapeHtml(fmtTime(approval.expiresAt))}. This local test action approves this exact sandbox offer on the member's behalf.</div>
+    <button class="btn btn-small btn-warning" data-action="member-approve"
+      data-trip-id="${escapeHtml(tripId)}" data-fingerprint="${escapeHtml(approval.binding.fingerprint)}"
+      data-summary="${escapeHtml(summary)}">Approve exact sandbox offer</button>
+  </div>`;
+}
+
+function renderMemberTripCard(trip, recovery) {
+  const tripId = trip.id ?? trip.memberTripId;
+  return `<div class="node-card member-trip-card" data-member-trip-card="${escapeHtml(tripId)}">
+    <div class="node-head"><span class="type-badge type-FLIGHT">PASSENGER</span>
+      <span class="status-badge status-${escapeHtml(trip.status)}">${escapeHtml(trip.status)}</span></div>
+    <div class="node-title">${escapeHtml(trip.passengerName || 'Passenger')} · ${escapeHtml(trip.flight?.flightNumber || '—')}</div>
+    <div class="node-meta">${escapeHtml(trip.flight?.origin || '—')} → ${escapeHtml(trip.flight?.destination || '—')} · ${escapeHtml(fmtTime(trip.flight?.departureTime))} · ${escapeHtml(trip.bookingReference || trip.orderId || '—')}</div>
+    ${localTestDisruptionEnabled && trip.status === 'CONFIRMED' ? `<div class="member-actions">
+      <button class="btn btn-small btn-warning" data-action="member-test-disruption"
+        data-trip-id="${escapeHtml(tripId)}">Test automatic recovery</button>
+    </div>` : ''}
+    ${recovery ? `<div class="node-meta">Recovery: ${escapeHtml(recovery.state)}</div>${renderLocalApproval(trip.id ?? trip.memberTripId, recovery)}` : ''}
+  </div>`;
+}
+
+async function findMemberBookings() {
+  const airline = els.memberAirline.value.trim().toUpperCase();
+  const flightNumber = els.memberFlight.value.trim().toUpperCase();
+  try {
+    const payload = await api(`/simulator/member-bookings?airline=${encodeURIComponent(airline)}&flightNumber=${encodeURIComponent(flightNumber)}`);
+    memberQuery = payload.query;
+    memberTripIds = payload.results.map((trip) => trip.id);
+    renderMemberBookings(payload);
+    showToast(`Found ${payload.count} confirmed passenger(s).`);
+  } catch (err) {
+    setStatus('error', err.message);
   }
+}
 
-  async function disruptMemberBookings(type, minutes) {
-    if (!memberQuery) return;
-    try {
-      const result = await api('/simulator/member-bookings/disrupt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...memberQuery, type, minutes }),
-      });
-      memberTripIds = result.affected.map((trip) => trip.memberTripId);
-      showToast(`${result.affectedCount} passenger(s) affected.`);
-      els.memberBookings.insertAdjacentHTML('afterbegin',
-        '<div class="member-actions"><button class="btn btn-small btn-primary" data-action="member-recover">Recover all affected passengers</button></div>');
-      if (result.affected[0]) {
-        currentTripId = result.affected[0].simulatorTripId;
-        els.tripIdLabel.textContent = currentTripId;
-        await refresh();
-        startPolling();
-      }
-    } catch (err) {
-      setStatus('error', err.message);
+async function disruptMemberBookings(type, minutes) {
+  if (!memberQuery) return;
+  try {
+    const result = await api('/simulator/member-bookings/disrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...memberQuery, type, minutes }),
+    });
+    memberTripIds = result.affected.map((trip) => trip.memberTripId);
+    showToast(`${result.affectedCount} passenger(s) affected.`);
+    els.memberBookings.insertAdjacentHTML('afterbegin',
+      '<div class="member-actions"><button class="btn btn-small btn-primary" data-action="member-recover">Recover all affected passengers</button></div>');
+    if (result.affected[0]) {
+      currentTripId = result.affected[0].simulatorTripId;
+      els.tripIdLabel.textContent = currentTripId;
+      await refresh();
+      startPolling();
     }
+  } catch (err) {
+    setStatus('error', err.message);
   }
 }
 
@@ -371,6 +413,12 @@ function renderRecovery(result) {
           <span class="verdict-badge verdict-${exec.status}">${exec.status.replace(/_/g, ' ')}</span>
           <span class="muted">${exec.summary}</span>
         </div>
+        ${exec.bookingId ? `<div class="recovery-section">
+          <h3>Confirmed sandbox replacement</h3>
+          <div class="attempt-row">Duffel order: <code>${escapeHtml(exec.bookingId)}</code></div>
+          <div class="attempt-row">Booking reference: <strong>${escapeHtml(exec.bookingReference || 'pending')}</strong></div>
+          <div class="attempt-row">Fare: ${escapeHtml(exec.total?.amount ?? '—')} ${escapeHtml(exec.total?.currency || '')}</div>
+        </div>` : ''}
 
         <div class="recovery-section">
           <h3>Considered ${rec.candidateCount} real alternatives${rec.rejectedCount ? ` · dropped ${rec.rejectedCount} implausible` : ''}</h3>
@@ -434,10 +482,91 @@ els.tripNodes.addEventListener('click', (e) => {
   const { action, id, minutes } = btn.dataset;
   if (action === 'cancel') cancelFlight(id);
   if (action === 'delay') delayFlight(id, Number(minutes));
-  if (action === 'member-cancel') disruptMemberBookings('CANCELLED');
-  if (action === 'member-delay') disruptMemberBookings('DELAYED', 90);
-  if (action === 'member-recover') recoverMemberBookings();
 });
+els.memberBookings.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  if (button.dataset.action === 'member-cancel') disruptMemberBookings('CANCELLED');
+  if (button.dataset.action === 'member-delay') disruptMemberBookings('DELAYED', 90);
+  if (button.dataset.action === 'member-recover') recoverMemberBookings();
+  if (button.dataset.action === 'member-approve') approveMemberRecovery(button);
+  if (button.dataset.action === 'member-test-disruption') testMemberDisruption(button);
+});
+
+async function testMemberDisruption(button) {
+  const tripId = button.dataset.tripId;
+  if (!tripId || !confirm(
+    'Create a synthetic cancellation and run automatic recovery for this saved trip?\n\n'
+    + 'If policy authorizes recovery, this may create a Duffel sandbox replacement order.',
+  )) return;
+  button.disabled = true;
+  button.textContent = 'Running recovery…';
+  try {
+    const response = await api('/simulator/member-bookings/test-disruption', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberTripId: tripId }),
+    });
+    const result = response.recovery;
+    const recovery = result.recovery;
+    const card = button.closest('[data-member-trip-card]');
+    if (card) {
+      const details = document.createElement('div');
+      details.className = 'recovery-section';
+      const status = document.createElement('h3');
+      status.textContent = `Test recovery: ${result.state}`;
+      details.append(status);
+      const booking = recovery?.updatedBooking;
+      if (booking?.orderId) {
+        const order = document.createElement('div');
+        order.className = 'node-meta';
+        order.textContent = `New sandbox order: ${booking.orderId} · Reference: ${booking.bookingReference || 'pending'}`;
+        details.append(order);
+      }
+      if (result.state === 'AWAITING_APPROVAL' && recovery?.approval) {
+        details.insertAdjacentHTML('beforeend', renderLocalApproval(tripId, {
+          state: result.state,
+          approval: recovery.approval,
+        }));
+      }
+      card.append(details);
+      button.remove();
+    }
+    showToast(`Test recovery started: ${result.state}.`);
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = 'Test automatic recovery';
+    setStatus('error', err.message);
+  }
+}
+
+async function approveMemberRecovery(button) {
+  if (!memberQuery || !confirm(`Approve this exact Duffel sandbox offer on the member's behalf?\n\n${button.dataset.summary}\n\nThis creates a sandbox test order, not a live ticket.`)) return;
+  try {
+    const response = await api('/simulator/member-bookings/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...memberQuery,
+        memberTripId: button.dataset.tripId,
+        fingerprint: button.dataset.fingerprint,
+      }),
+    });
+    const result = response.recovery;
+    const card = button.closest('[data-member-trip-card]');
+    if (card) {
+      card.innerHTML = `<div class="node-head"><strong>${escapeHtml(result.status)}</strong></div>
+        <div class="node-meta">${escapeHtml(result.detail || '')}</div>
+        ${result.updatedBooking?.orderId ? `<div class="node-meta">
+          New sandbox order: <code>${escapeHtml(result.updatedBooking.orderId)}</code> ·
+          Reference: <strong>${escapeHtml(result.updatedBooking.bookingReference || 'pending')}</strong>
+        </div>` : ''}`;
+    }
+    showToast(`Local test approval result: ${result.status}.`);
+  } catch (err) {
+    setStatus('error', err.message);
+  }
+}
 
 async function recoverMemberBookings() {
   if (!memberQuery || memberTripIds.length === 0) return;
@@ -451,8 +580,19 @@ async function recoverMemberBookings() {
     showToast(`${recovered} passenger recovery run(s) completed.`);
     els.memberBookings.insertAdjacentHTML('afterbegin',
       `<div class="member-recovery-results"><h3>Batch recovery results</h3>${result.results.map((entry) =>
-        `<div class="attempt-row"><strong>${entry.passengerName || entry.memberTripId}</strong> · ${entry.status}${
-          entry.detail ? ` · ${entry.detail}` : ''}</div>`).join('')}</div>`);
+          `<div class="node-card member-trip-card" data-member-trip-card="${escapeHtml(entry.memberTripId)}">
+            <div class="node-head"><strong>${escapeHtml(entry.passengerName || entry.memberTripId)}</strong>
+              <span class="status-badge status-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span></div>
+            ${entry.detail ? `<div class="node-meta">${escapeHtml(entry.detail)}</div>` : ''}
+            ${entry.updatedBooking?.orderId ? `<div class="node-meta">
+              New sandbox order: <code>${escapeHtml(entry.updatedBooking.orderId)}</code> ·
+              Reference: <strong>${escapeHtml(entry.updatedBooking.bookingReference || 'pending')}</strong><br>
+              Flight: ${escapeHtml(entry.updatedBooking.flight?.flightNumber || '—')} ·
+              ${escapeHtml(entry.updatedBooking.flight?.origin || '—')} → ${escapeHtml(entry.updatedBooking.flight?.destination || '—')} ·
+              Fare: ${escapeHtml(entry.updatedBooking.total?.amount ?? '—')} ${escapeHtml(entry.updatedBooking.total?.currency || '')}
+            </div>` : ''}
+            ${renderLocalApproval(entry.memberTripId, entry.approval)}
+          </div>`).join('')}</div>`);
     await refresh();
   } catch (err) {
     setStatus('error', err.message);

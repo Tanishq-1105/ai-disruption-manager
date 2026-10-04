@@ -20,7 +20,9 @@
 // Extra spend the agent may authorise without asking, plus the comfort limits
 // that separate a routine reroute from something the member should see.
 import { toUtcMinutes } from '../normalize/plausibility.js';
+import { createHash } from 'node:crypto';
 
+export const POLICY_VERSION = 'tripshield-recovery-policy-v1';
 export const DEFAULT_POLICY = {
   // Measured as spend ABOVE the original fare - the incremental cost the agent
   // is committing on the member's behalf, not the absolute ticket price.
@@ -36,8 +38,45 @@ export const AUTONOMY = { AUTO: 'AUTO', ESCALATE: 'ESCALATE' };
 
 const MINUTES_PER_HOUR = 60;
 
-function localDate(isoLocal) {
-  return typeof isoLocal === 'string' ? isoLocal.slice(0, 10) : null;
+function hasUsableTime(value, offsetHours) {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return false;
+  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) || Number.isFinite(offsetHours);
+}
+
+export function localDateAtOffset(value, offsetHours) {
+  if (!hasUsableTime(value, offsetHours)) return null;
+  const suffix = /([+-])(\d{2}):?(\d{2})$/i.exec(value);
+  if (!Number.isFinite(offsetHours) && !suffix) return null;
+  const offset = Number.isFinite(offsetHours) ? offsetHours * 60
+    : (suffix[1] === '-' ? -1 : 1) * (Number(suffix[2]) * 60 + Number(suffix[3]));
+  const instant = toUtcMinutes(value, offsetHours);
+  if (instant === null) return null;
+  return new Date((instant + offset) * 60_000).toISOString().slice(0, 10);
+}
+
+export function buildApprovalBinding({ option, policy, quoteVersion }) {
+  const details = {
+    policyVersion: POLICY_VERSION,
+    quoteVersion: quoteVersion ?? option?.id ?? null,
+    optionId: option?.id ?? null,
+    offerId: option?.offerId ?? option?.id ?? null,
+    expiresAt: option?.expiresAt ?? null,
+    price: option?.price ?? null,
+    origin: option?.origin ?? null,
+    destination: option?.destination ?? null,
+    departureTime: option?.departureTime ?? null,
+    arrivalTime: option?.arrivalTime ?? null,
+    cabin: option?.cabin ?? null,
+    refundable: option?.refundable ?? null,
+    flightNumber: option?.flightNumber ?? null,
+    stops: option?.stops ?? null,
+    segments: option?.segments ?? null,
+    policy,
+  };
+  return {
+    ...details,
+    fingerprint: createHash('sha256').update(JSON.stringify(details)).digest('hex'),
+  };
 }
 
 /**
@@ -61,17 +100,24 @@ export function evaluateFlightChange({ option, original, policy = DEFAULT_POLICY
   const optionCurrency = option?.price?.currency;
   const originalCurrency = original?.price?.currency;
 
-  if (!Number.isFinite(optionPrice) || !Number.isFinite(originalPrice)) {
+  if (!Number.isFinite(optionPrice) || optionPrice < 0
+      || !Number.isFinite(originalPrice) || originalPrice < 0) {
     // An unpriced change is an unbounded commitment. Never automatic.
     fail('COST_CAP', 'fare is missing, so the extra spend cannot be bounded');
+  } else if (!/^[A-Z]{3}$/.test(optionCurrency ?? '')
+      || !/^[A-Z]{3}$/.test(originalCurrency ?? '')) {
+    fail('COST_CAP', 'fare currency is missing or invalid');
   } else if (optionCurrency !== originalCurrency) {
     // Converting currencies would need a rate, and a rate is a judgement call
     // the member did not delegate.
     fail('COST_CAP', `cannot compare ${optionCurrency} against ${originalCurrency} without a rate`);
   } else {
     const extra = optionPrice - originalPrice;
-    const cap = policy.costCap?.amount ?? 0;
-    if (policy.costCap?.currency && policy.costCap.currency !== optionCurrency) {
+    const cap = policy.costCap?.amount;
+    if (!Number.isFinite(cap) || cap < 0
+        || !/^[A-Z]{3}$/.test(policy.costCap?.currency ?? '')) {
+      fail('COST_CAP', 'member cost cap is missing or invalid');
+    } else if (policy.costCap.currency !== optionCurrency) {
       fail('COST_CAP', `cap is in ${policy.costCap.currency}, fare is in ${optionCurrency}`);
     } else if (extra > cap) {
       fail('COST_CAP', `${round(extra)} ${optionCurrency} above the original exceeds the ${cap} cap`);
@@ -87,8 +133,10 @@ export function evaluateFlightChange({ option, original, policy = DEFAULT_POLICY
   if (delayMinutes === null) {
     fail('ARRIVAL_WINDOW', 'arrival times are not comparable');
   } else {
-    const limit = (policy.maxArrivalDelayHours ?? 0) * MINUTES_PER_HOUR;
-    if (delayMinutes > limit) {
+    const hours = policy.maxArrivalDelayHours;
+    if (!Number.isFinite(hours) || hours < 0) {
+      fail('ARRIVAL_WINDOW', 'maximum arrival delay policy is missing or invalid');
+    } else if (delayMinutes > hours * MINUTES_PER_HOUR) {
       fail('ARRIVAL_WINDOW', `arrives ${round(delayMinutes / 60)}h later, beyond the ${policy.maxArrivalDelayHours}h window`);
     } else {
       pass('ARRIVAL_WINDOW', delayMinutes > 0
@@ -98,26 +146,60 @@ export function evaluateFlightChange({ option, original, policy = DEFAULT_POLICY
   }
 
   // --- same day / overnight --------------------------------------------
-  const originalDay = localDate(original?.arrivalTime);
-  const optionDay = localDate(option?.arrivalTime);
-  if (policy.sameDayOnly && originalDay && optionDay) {
-    if (optionDay !== originalDay) {
-      // A later arrival date means a night the member did not plan for.
-      const rule = policy.allowOvernight ? 'SAME_DAY' : 'OVERNIGHT';
-      fail(rule, `arrives on ${optionDay}, not ${originalDay}`);
-    } else {
-      pass('SAME_DAY', `arrives the same day (${optionDay})`);
+  const originalArrivalOffset = original?.segments?.at(-1)?.arrivalOffsetHours ?? original?.arrivalOffsetHours;
+  const optionArrivalOffset = option?.segments?.at(-1)?.arrivalOffsetHours ?? option?.arrivalOffsetHours;
+  const originalDay = localDateAtOffset(original?.arrivalTime, originalArrivalOffset);
+  const optionDay = localDateAtOffset(option?.arrivalTime, optionArrivalOffset);
+  if (!hasUsableTime(original?.departureTime,
+    original?.segments?.[0]?.departureOffsetHours ?? original?.departureOffsetHours)
+      || !hasUsableTime(option?.departureTime,
+        option?.segments?.[0]?.departureOffsetHours ?? option?.departureOffsetHours)
+      || !originalDay || !optionDay) {
+    fail('SCHEDULE', 'departure and destination-local arrival schedules with usable time zones are required');
+  } else if (typeof policy.sameDayOnly !== 'boolean') {
+    fail('SCHEDULE', 'same-day recovery policy is missing or invalid');
+  } else {
+    pass('SCHEDULE', 'departure and destination-local arrival schedules are valid');
+    if (policy.sameDayOnly) {
+      if (optionDay !== originalDay) {
+        if (policy.allowOvernight) pass('OVERNIGHT', `overnight arrival permitted by policy (${optionDay})`);
+        else fail('OVERNIGHT', `arrives on ${optionDay}, not ${originalDay}`);
+      } else {
+        pass('SAME_DAY', `arrives the same day (${optionDay})`);
+      }
     }
   }
 
+  if (option?.origin !== original?.origin || option?.destination !== original?.destination
+      || !option?.origin || !option?.destination) {
+    fail('ITINERARY', 'replacement must preserve the original origin and destination');
+  } else {
+    pass('ITINERARY', `preserves ${original.origin}-${original.destination}`);
+  }
+
   // --- cabin ------------------------------------------------------------
-  const downgraded = isCabinDowngrade(option?.cabin, original?.cabin);
+  const optionCabin = String(option?.cabin ?? '').toUpperCase();
+  const originalCabin = String(original?.cabin ?? '').toUpperCase();
+  if (!CABIN_ORDER.includes(optionCabin) || !CABIN_ORDER.includes(originalCabin)) {
+    fail('CABIN', 'original and replacement cabin classes must both be known');
+  }
+  const downgraded = isCabinDowngrade(optionCabin, originalCabin);
   if (downgraded && !policy.allowCabinDowngrade) {
     fail('CABIN', `downgrades ${original.cabin} to ${option.cabin}`);
   } else if (downgraded) {
     pass('CABIN', `downgrade permitted by policy`);
-  } else if (option?.cabin && original?.cabin) {
+  } else if (CABIN_ORDER.includes(optionCabin) && CABIN_ORDER.includes(originalCabin)) {
     pass('CABIN', 'cabin maintained or better');
+  }
+
+  if (typeof option?.refundable !== 'boolean' || typeof original?.refundable !== 'boolean') {
+    fail('REFUNDABILITY', 'refund conditions for the original and replacement fares must be verified');
+  } else if (!option.refundable || !original.refundable) {
+    pass('REFUNDABILITY_KNOWN', 'refund conditions are known');
+    fail('NON_REFUNDABLE', 'one or both fares are non-refundable');
+  } else {
+    pass('REFUNDABILITY_KNOWN', 'refund conditions are known');
+    pass('REFUNDABILITY', 'original and replacement fares are verified refundable');
   }
 
   return { allowed: violations.length === 0, violations, checks };
@@ -230,7 +312,7 @@ export function decide({ option, original, impacts = [], policy = DEFAULT_POLICY
   else if (actions.length === 0) decision = DECISION.ESCALATE;
   else decision = DECISION.SPLIT;
 
-  return { decision, actions, escalations, policy };
+  return { decision, actions, escalations, policy, policyVersion: POLICY_VERSION };
 }
 
 /** One auditable line describing the verdict. */

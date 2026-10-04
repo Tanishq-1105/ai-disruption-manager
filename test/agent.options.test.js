@@ -18,13 +18,20 @@ const ORIGINAL = {
   departureTime: '2026-09-23T07:00:00',
   arrivalTime: '2026-09-23T10:00:00',
   arrivalOffsetHours: -7,
+  departureOffsetHours: -4,
   stops: 0,
   cabin: 'ECONOMY',
+  refundable: true,
+  segments: [{
+    origin: 'JFK', destination: 'LAX',
+    departureTime: '2026-09-23T07:00:00', arrivalTime: '2026-09-23T10:00:00',
+    departureOffsetHours: -4, arrivalOffsetHours: -7,
+  }],
   price: { amount: 200, currency: 'USD' },
 };
 
 function option(overrides = {}) {
-  return {
+  const result = {
     id: 'opt',
     airline: 'DL',
     flightNumber: 'DL100',
@@ -35,9 +42,33 @@ function option(overrides = {}) {
     stops: 0,
     cabin: 'ECONOMY',
     price: { amount: 200, currency: 'USD' },
-    segments: [{ departureOffsetHours: -4, arrivalOffsetHours: -7 }],
+    refundable: true,
+    segments: undefined,
     ...overrides,
   };
+  if (!overrides.segments) {
+    const stops = Number.isFinite(result.stops) ? result.stops : 0;
+    const points = [result.origin, ...Array.from({ length: stops }, (_, i) => `X${i}`), result.destination];
+    result.segments = stops === 0
+      ? [{
+        airline: result.airline, flightNumber: result.flightNumber,
+        origin: result.origin, destination: result.destination,
+        departureTime: result.departureTime, arrivalTime: result.arrivalTime,
+        departureOffsetHours: -4, arrivalOffsetHours: -7,
+      }]
+      : [{
+        airline: result.airline, flightNumber: result.flightNumber,
+        origin: points[0], destination: points[1],
+        departureTime: result.departureTime, arrivalTime: result.departureTime.slice(0, 11) + '09:00:00',
+        departureOffsetHours: -4, arrivalOffsetHours: -5,
+      }, {
+        airline: result.airline, flightNumber: result.flightNumber,
+        origin: points[1], destination: points[2],
+        departureTime: result.departureTime.slice(0, 11) + '10:00:00', arrivalTime: result.arrivalTime,
+        departureOffsetHours: -5, arrivalOffsetHours: -7,
+      }];
+  }
+  return result;
 }
 
 const ctx = { original: ORIGINAL };
@@ -255,7 +286,10 @@ test('the best-scoring copy survives deduplication', () => {
 test('flights differing by departure time are not treated as duplicates', () => {
   const { ranked } = rankOptions([
     option({ id: 'am', flightNumber: 'AS227', departureTime: '2026-09-23T07:00:00' }),
-    option({ id: 'pm', flightNumber: 'AS227', departureTime: '2026-09-23T15:00:00' }),
+    option({
+      id: 'pm', flightNumber: 'AS227',
+      departureTime: '2026-09-23T15:00:00', arrivalTime: '2026-09-23T18:00:00',
+    }),
   ], ctx);
   assert.equal(ranked.length, 2);
 });

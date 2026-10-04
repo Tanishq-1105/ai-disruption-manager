@@ -6,6 +6,7 @@ import {
   classifyImpact,
   explainDecision,
   arrivalDelayMinutes,
+  buildApprovalBinding,
   DEFAULT_POLICY,
   DECISION,
   AUTONOMY,
@@ -14,9 +15,14 @@ import {
 const ORIGINAL = {
   airline: 'DL',
   cabin: 'ECONOMY',
+  origin: 'JFK',
+  destination: 'LAX',
+  departureTime: '2026-09-23T07:00:00Z',
   arrivalTime: '2026-09-23T10:00:00',
+  departureOffsetHours: -4,
   arrivalOffsetHours: -7,
   price: { amount: 200, currency: 'USD' },
+  refundable: true,
 };
 
 function option(overrides = {}) {
@@ -25,9 +31,13 @@ function option(overrides = {}) {
     flightNumber: 'DL767',
     airline: 'DL',
     cabin: 'ECONOMY',
+    origin: 'JFK',
+    destination: 'LAX',
+    departureTime: '2026-09-23T07:00:00Z',
     arrivalTime: '2026-09-23T12:00:00',
     arrivalOffsetHours: -7,
     price: { amount: 260, currency: 'USD' },
+    refundable: true,
     ...overrides,
   };
 }
@@ -138,6 +148,7 @@ test('all violations are reported, not just the first', () => {
 
 test('every check records the rule that produced it', () => {
   const { checks } = evaluateFlightChange({ option: option(), original: ORIGINAL });
+  assert.ok(checks.some(check => check.rule === 'SCHEDULE' && check.passed));
   for (const c of checks) {
     assert.ok(c.rule, 'each check names its rule');
     assert.ok(c.detail, 'each check explains itself');
@@ -148,6 +159,67 @@ test('arrival delay accounts for timezone offsets', () => {
   // Same instant, expressed one hour further east.
   const same = { arrivalTime: '2026-09-23T11:00:00', arrivalOffsetHours: -6 };
   assert.equal(arrivalDelayMinutes(same, ORIGINAL), 0);
+});
+
+test('missing cabin, schedule zone, or refundability fails closed', () => {
+  for (const changed of [
+    option({ cabin: undefined }),
+    option({ departureTime: undefined }),
+    option({ arrivalOffsetHours: undefined, arrivalTime: '2026-09-23T12:00:00' }),
+    option({ refundable: undefined }),
+  ]) {
+    const evaluation = evaluateFlightChange({ option: changed, original: ORIGINAL });
+    assert.equal(evaluation.allowed, false);
+  }
+});
+
+test('invalid autonomy limits fail closed', () => {
+  const forInvalidPolicy = evaluateFlightChange({
+    option: option(),
+    original: ORIGINAL,
+    policy: { ...DEFAULT_POLICY, maxArrivalDelayHours: NaN, sameDayOnly: 'yes' },
+  });
+  assert.equal(forInvalidPolicy.allowed, false);
+  assert.ok(forInvalidPolicy.violations.some(issue => issue.rule === 'ARRIVAL_WINDOW'));
+  assert.ok(forInvalidPolicy.violations.some(issue => issue.rule === 'SCHEDULE'));
+});
+
+test('same-day policy compares arrival dates in destination-local time', () => {
+  const original = {
+    ...ORIGINAL, arrivalTime: '2026-09-24T00:15:00Z', arrivalOffsetHours: -7,
+  };
+  const candidate = option({
+    arrivalTime: '2026-09-24T01:00:00Z', arrivalOffsetHours: -7,
+  });
+  const evaluation = evaluateFlightChange({ option: candidate, original });
+  assert.equal(evaluation.violations.some(issue => issue.rule === 'OVERNIGHT'), false);
+});
+
+test('a different endpoint is not an automatic replacement', () => {
+  const evaluation = evaluateFlightChange({
+    option: option({ destination: 'SFO' }),
+    original: ORIGINAL,
+  });
+
+  test('an approval binding changes when fare, itinerary, quote version, or policy changes', () => {
+    const binding = buildApprovalBinding({
+      option: option(), policy: DEFAULT_POLICY, quoteVersion: 'offer-v1',
+    });
+    for (const changed of [
+      { option: option({ price: { amount: 261, currency: 'USD' } }) },
+      { option: option({ flightNumber: 'DL999' }) },
+      { quoteVersion: 'offer-v2' },
+      { policy: { ...DEFAULT_POLICY, maxArrivalDelayHours: 2 } },
+    ]) {
+      const next = buildApprovalBinding({
+        option: changed.option ?? option(),
+        policy: changed.policy ?? DEFAULT_POLICY,
+        quoteVersion: changed.quoteVersion ?? 'offer-v1',
+      });
+      assert.notEqual(next.fingerprint, binding.fingerprint);
+    }
+  });
+  assert.ok(evaluation.violations.some(issue => issue.rule === 'ITINERARY'));
 });
 
 // --- downstream impacts ------------------------------------------------

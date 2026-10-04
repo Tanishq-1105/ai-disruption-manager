@@ -22,7 +22,9 @@
 //   booking is NOT rolled back. Two tickets is a billing problem; zero tickets
 //   is a stranded member. We take the billing problem and flag it.
 
-import { evaluateFlightChange, DEFAULT_POLICY, DECISION, AUTONOMY } from './policy.js';
+import {
+  evaluateFlightChange, DEFAULT_POLICY, DECISION, AUTONOMY, POLICY_VERSION, buildApprovalBinding,
+} from './policy.js';
 import { viabilityIssues, arrivalUtcMinutes, departureUtcMinutes } from './options.js';
 
 export const OUTCOME = {
@@ -49,10 +51,11 @@ export function buildIdempotencyKey({ tripId, optionId, attempt }) {
   return `${tripId}:${optionId}:${attempt}`;
 }
 
-// Pending attempts remain attached to a recovery scope even if the next search
-// would return different offer IDs. This is process-local; member recovery must
-// use durable claims before it is connected to persisted trips.
+// Pending demo attempts remain attached to a recovery scope even if the next
+// search would return different offer IDs. Persisted-member recovery uses its
+// separate Mongo checkpoints.
 const pendingByProvider = new WeakMap();
+const MEMBER_APPROVABLE_RULES = new Set(['COST_CAP', 'ARRIVAL_WINDOW', 'OVERNIGHT', 'CABIN', 'NON_REFUNDABLE']);
 export function getPendingRecovery({ provider, scope }) {
   return pendingByProvider.get(provider)?.get(scope) ?? null;
 }
@@ -76,9 +79,16 @@ function itinerary(option) {
   });
 }
 
+function sameSelectedItinerary(selected, refreshed) {
+  return itinerary(selected) === itinerary(refreshed);
+}
+
 export async function executeRecovery({
   tripId, original, ranked = [], decision, provider, policy = DEFAULT_POLICY,
   maxAttempts = 3, audit = [], now = () => new Date().toISOString(),
+  bookingPassenger, bookingMetadata,
+  durableRecovery,
+  approvedRecovery,
   scope = `${tripId}:${original?.bookingId ?? original?.nodeId ?? 'flight'}`,
 }) {
   const record = entry => audit.push({ at: now(), tripId, ...entry });
@@ -111,6 +121,11 @@ export async function executeRecovery({
         || confirmed.id === original?.bookingId || confirmed.status !== 'CONFIRMED') {
       return review(entry, 'The replacement is not independently confirmed; the original ticket and dependents are unchanged.');
     }
+    if (durableRecovery && (confirmed.sandbox !== true
+        || confirmed.metadata?.tripshield_booking_id !== durableRecovery.record.memberTripId
+        || confirmed.metadata?.tripshield_recovery_key !== entry.idempotencyKey)) {
+      return review(entry, 'The replacement order mode or member/recovery metadata could not be verified; the original ticket is retained.');
+    }
     entry.bookingId = confirmed.id;
     if (!confirmed.option || itinerary(confirmed.option) !== itinerary(entry.option)
         || !Number.isFinite(confirmed.total?.amount)
@@ -119,24 +134,64 @@ export async function executeRecovery({
       return review(entry, 'The confirmed order does not match the authorised fare or itinerary; review it before releasing the original.');
     }
     const booking = { ...confirmed, tripId, option: { ...entry.option, price: confirmed.total } };
+    await durableRecovery?.checkpoint('NEW_CONFIRMED', {
+      newOrderId: booking.id,
+      confirmedBooking: booking,
+    }, { action: 'NEW_CONFIRMED', bookingId: booking.id });
     record({ action: 'CONFIRM_NEW', outcome: OUTCOME.BOOKED, authorisedBy: 'CONFIRM_BEFORE_RELEASE',
       attempt: entry.attempt, optionId: entry.option.id, bookingId: booking.id,
       idempotencyKey: entry.idempotencyKey, detail: 'independent lookup verified the authorised order, fare and itinerary' });
 
-    if (!entry.releaseOutcome) {
+    if (!entry.releaseOutcome && durableRecovery?.record.state !== 'OLD_RELEASED'
+        && durableRecovery?.record.state !== 'MEMBER_TRIP_UPDATED'
+        && durableRecovery?.record.state !== 'COMPLETED') {
+      await durableRecovery?.checkpoint('OLD_RELEASE_PENDING', {
+        newOrderId: booking.id,
+      }, { action: 'OLD_RELEASE_PENDING', bookingId: original?.bookingId ?? null });
       entry.releaseOutcome = OUTCOME.OLD_RELEASED;
       if (original?.bookingId) {
         try {
-          const released = await provider.cancelBooking(original.bookingId);
-          if (released?.status !== 'CANCELLED') throw new Error('cancellation was not confirmed');
+          let oldBooking;
+          if (durableRecovery) oldBooking = await provider.getBooking(original.bookingId);
+          if (durableRecovery && (oldBooking?.id !== original.bookingId || oldBooking.sandbox !== true
+              || oldBooking.metadata?.tripshield_booking_id !== durableRecovery.record.memberTripId)) {
+            throw new Error('original sandbox order identity could not be verified');
+          }
+          if (oldBooking?.status !== 'CANCELLED') {
+            if (durableRecovery && oldBooking?.status !== 'CONFIRMED') {
+              throw new Error('original booking status could not be confirmed');
+            }
+            const released = await provider.cancelBooking(original.bookingId);
+            if (released?.status !== 'CANCELLED') throw new Error('cancellation was not confirmed');
+          }
         } catch {
-          entry.releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
+          if (durableRecovery) {
+            try {
+              const reconciled = await provider.getBooking(original.bookingId);
+              if (reconciled?.id === original.bookingId && reconciled.status === 'CANCELLED'
+                  && reconciled.sandbox === true
+                  && reconciled.metadata?.tripshield_booking_id === durableRecovery.record.memberTripId) {
+                entry.releaseOutcome = OUTCOME.OLD_RELEASED;
+              } else {
+                entry.releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
+              }
+            } catch {
+              entry.releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
+            }
+          } else {
+            entry.releaseOutcome = OUTCOME.OLD_RELEASE_FAILED;
+          }
         }
         record({ action: 'RELEASE_OLD', bookingId: original.bookingId, outcome: entry.releaseOutcome,
           authorisedBy: 'CONFIRM_BEFORE_RELEASE', detail: entry.releaseOutcome === OUTCOME.OLD_RELEASED
             ? 'old ticket released after independent confirmation'
             : 'could not confirm release of the old ticket; member may hold two bookings' });
       }
+      await durableRecovery?.checkpoint(
+        entry.releaseOutcome === OUTCOME.OLD_RELEASED ? 'OLD_RELEASED' : 'COMPLETED_NEEDS_ATTENTION',
+        { newOrderId: booking.id, oldReleaseOutcome: entry.releaseOutcome },
+        { action: 'RELEASE_OLD', bookingId: original?.bookingId ?? null, outcome: entry.releaseOutcome },
+      );
     }
     attempts.push({ attempt: entry.attempt, optionId: entry.option.id, outcome: OUTCOME.BOOKED, bookingId: booking.id });
     entry.completed = { status: entry.releaseOutcome === OUTCOME.OLD_RELEASE_FAILED
@@ -149,9 +204,53 @@ export async function executeRecovery({
   const existing = pending.get(scope);
   if (existing) return confirmAndRelease(existing);
 
-  const authorised = decision?.actions?.some(action => action.action === 'REBOOK_FLIGHT'
+  if (durableRecovery?.resumeOnly) {
+    const saved = durableRecovery.record;
+    const option = saved.authorizedOption;
+    if (!option || !saved.idempotencyKey) {
+      return result(STATUS.REVIEW_REQUIRED, {
+        detail: 'Persisted recovery is missing its authorized order attempt; no purchase was retried.',
+      });
+    }
+    const entry = {
+      option,
+      attempt: saved.candidateAttempt ?? 1,
+      idempotencyKey: saved.idempotencyKey,
+      bookingId: saved.newOrderId ?? null,
+      releaseOutcome: saved.oldReleaseOutcome ?? null,
+    };
+    pending.set(scope, entry);
+    return confirmAndRelease(entry);
+  }
+
+  const autoAuthorised = decision?.actions?.some(action => action.action === 'REBOOK_FLIGHT'
     && action.autonomy === AUTONOMY.AUTO && action.rule === 'WITHIN_LIMITS' && !action.nodeId);
-  if (!authorised) {
+  const approvalRequest = approvedRecovery?.approvalRequest;
+  const approvalOption = approvalRequest?.option;
+  const approvalPrepared = approvalRequest?.preparedQuote;
+  const approvalBinding = approvalOption && approvedRecovery?.approvedAt
+    ? buildApprovalBinding({
+      option: approvalOption,
+      policy,
+      quoteVersion: approvalPrepared?.version ?? `${approvalOption.offerId ?? approvalOption.id}:${approvalPrepared?.expiresAt}`,
+    })
+    : null;
+  const approvalEvaluation = approvalOption
+    ? evaluateFlightChange({ option: approvalOption, original, policy })
+    : null;
+  const memberApproved = Boolean(
+    approvalBinding?.fingerprint
+      && approvalBinding.fingerprint === approvalRequest.binding?.fingerprint
+      && approvalRequest.policyVersion === POLICY_VERSION
+      && approvedRecovery.policyVersion === POLICY_VERSION
+      && Date.parse(approvalPrepared?.expiresAt) > Date.now()
+      && approvalEvaluation?.violations.length > 0
+      && approvalEvaluation.violations.every(issue => MEMBER_APPROVABLE_RULES.has(issue.rule))
+      && ['SCHEDULE', 'ITINERARY', 'CABIN', 'REFUNDABILITY_KNOWN'].every(rule =>
+        approvalEvaluation.checks.some(check => check.rule === rule && check.passed))
+      && ranked.length === 1 && ranked[0].option.id === approvalOption.id,
+  );
+  if (!autoAuthorised && !memberApproved) {
     record({ action: 'REBOOK_FLIGHT', outcome: OUTCOME.NOT_AUTHORISED,
       authorisedBy: decision?.decision ?? DECISION.ESCALATE, detail: 'policy did not authorise an automatic rebooking' });
     return result(STATUS.NOTHING_AUTHORISED);
@@ -166,7 +265,11 @@ export async function executeRecovery({
     const searched = candidate.option ?? candidate;
     const attempt = index + 1;
     let prepared;
-    try { prepared = await provider.prepareFlight({ option: searched }); }
+    try {
+      prepared = memberApproved
+        ? approvalPrepared
+        : await provider.prepareFlight({ option: searched, passenger: bookingPassenger });
+    }
     catch (error) {
       attempts.push({ attempt, optionId: searched.id, outcome: OUTCOME.PRECHECK_FAILED, detail: error.message });
       record({ action: 'REFRESH_OFFER', outcome: OUTCOME.PRECHECK_FAILED, attempt, optionId: searched.id,
@@ -175,15 +278,33 @@ export async function executeRecovery({
     }
     const option = prepared?.option;
     const evaluation = evaluateFlightChange({ option, original, policy });
-    const issues = option ? viabilityIssues(option, { readyAt: original?.departureTime,
-      requiredDestination: original?.destination }) : ['provider returned no refreshed itinerary'];
+    const issues = option ? viabilityIssues(option, {
+      readyAt: original?.departureTime,
+      readyAtOffsetHours: original?.segments?.[0]?.departureOffsetHours ?? original?.departureOffsetHours,
+      requiredOrigin: original?.origin,
+      requiredDestination: original?.destination,
+    }) : ['provider returned no refreshed itinerary'];
     if (option?.id !== searched.id) issues.push('refreshed offer does not match the selected offer');
-    if (original?.origin && option?.origin !== original.origin) issues.push('refreshed flight leaves from a different airport');
-    const allowed = evaluation.allowed && issues.length === 0;
+    if (option && !sameSelectedItinerary(searched, option)) {
+      issues.push('refreshed offer itinerary differs from the selected flight');
+    }
+    if (durableRecovery && (!Number.isFinite(Date.parse(prepared?.expiresAt))
+        || Date.parse(prepared.expiresAt) <= Date.now()
+        || Number(prepared.amount) !== option?.price?.amount
+        || prepared.currency !== option?.price?.currency)) {
+      issues.push('refreshed quote is expired or its exact fare differs from the prepared quote');
+    }
+    const approvedViolations = memberApproved
+      && evaluation.violations.length > 0
+      && evaluation.violations.every(issue => MEMBER_APPROVABLE_RULES.has(issue.rule))
+      && ['SCHEDULE', 'ITINERARY', 'CABIN', 'REFUNDABILITY_KNOWN'].every(rule =>
+        evaluation.checks.some(check => check.rule === rule && check.passed));
+    const allowed = (evaluation.allowed || approvedViolations) && issues.length === 0;
     const detail = [...evaluation.violations.map(v => v.detail), ...issues].join('; ');
     record({ action: 'CHECK_REFRESHED_OFFER', attempt, optionId: searched.id,
       outcome: allowed ? 'AUTHORISED' : OUTCOME.NOT_AUTHORISED,
-      authorisedBy: allowed ? 'WITHIN_LIMITS' : evaluation.violations[0]?.rule ?? 'VIABILITY',
+      authorisedBy: allowed ? (memberApproved ? 'MEMBER_APPROVAL' : 'WITHIN_LIMITS')
+        : evaluation.violations[0]?.rule ?? 'VIABILITY',
       detail: allowed ? `authorised refreshed fare ${option.price.amount} ${option.price.currency}` : detail,
       oldTicketRetained: true });
     if (!allowed) {
@@ -196,10 +317,40 @@ export async function executeRecovery({
     const entry = { option, attempt, idempotencyKey };
     pending.set(scope, entry);
     record({ action: 'BOOK_NEW', attempt, optionId: option.id, idempotencyKey,
-      outcome: 'REQUESTED', authorisedBy: 'WITHIN_LIMITS',
+      outcome: 'REQUESTED', authorisedBy: memberApproved ? 'MEMBER_APPROVAL' : 'WITHIN_LIMITS',
       detail: `requesting ${option.flightNumber ?? option.id} at ${option.price.amount} ${option.price.currency}` });
     let created;
-    try { created = await provider.bookFlight({ tripId, option, prepared, idempotencyKey }); }
+    if (durableRecovery) {
+      const persisted = {
+        authorizedOption: option,
+        preparedQuote: prepared,
+        idempotencyKey,
+        candidateAttempt: attempt,
+        policySnapshot: structuredClone(policy),
+        policyVersion: POLICY_VERSION,
+        decisionSnapshot: structuredClone(decision),
+        originalSnapshot: structuredClone(original),
+        approvalBinding: buildApprovalBinding({
+          option, policy,
+          quoteVersion: prepared?.version ?? `${option.offerId ?? option.id}:${prepared?.expiresAt}`,
+        }),
+      };
+      await durableRecovery.checkpoint('AUTHORIZED', persisted, {
+        action: 'CANDIDATE_AUTHORIZED', optionId: option.id, idempotencyKey,
+        authorizedBy: memberApproved ? 'MEMBER_APPROVAL' : 'WITHIN_LIMITS',
+        approvedBy: approvedRecovery?.approvedBy ?? null,
+        approvedAt: approvedRecovery?.approvedAt ?? null,
+      });
+      await durableRecovery.checkpoint('BOOKING_REQUESTED', persisted, {
+        action: 'BOOKING_REQUESTED', optionId: option.id, idempotencyKey,
+      });
+    }
+    try {
+      created = await provider.bookFlight({
+        tripId, option, prepared, idempotencyKey,
+        passenger: bookingPassenger, metadata: bookingMetadata,
+      });
+    }
     catch (error) {
       if (error.bookingOutcome !== 'NOT_CREATED') {
         return review(entry, 'Order creation outcome is unknown; reconcile this attempt before booking again.');
@@ -207,10 +358,17 @@ export async function executeRecovery({
       pending.delete(scope);
       attempts.push({ attempt, optionId: option.id, outcome: OUTCOME.BOOKING_FAILED, detail: error.message });
       record({ action: 'BOOK_NEW', attempt, optionId: option.id, idempotencyKey,
-        outcome: OUTCOME.BOOKING_FAILED, authorisedBy: 'WITHIN_LIMITS', detail: error.message, oldTicketRetained: true });
+        outcome: OUTCOME.BOOKING_FAILED,
+        authorisedBy: memberApproved ? 'MEMBER_APPROVAL' : 'WITHIN_LIMITS',
+        detail: error.message, oldTicketRetained: true });
       continue;
     }
     entry.bookingId = created?.id;
+    if (durableRecovery) {
+      await durableRecovery.checkpoint('ORDER_CREATED', {
+        newOrderId: entry.bookingId,
+      }, { action: 'ORDER_CREATED', bookingId: entry.bookingId, idempotencyKey });
+    }
     return confirmAndRelease(entry);
   }
   record({ action: 'REBOOK_FLIGHT', outcome: OUTCOME.BOOKING_FAILED, authorisedBy: 'WITHIN_LIMITS',

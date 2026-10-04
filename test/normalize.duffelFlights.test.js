@@ -15,6 +15,7 @@ const OFFER = {
   total_amount: '164.08',
   total_currency: 'EUR',
   expires_at: '2026-08-25T13:00:00Z',
+  conditions: { refund_before_departure: { allowed: true, penalty_amount: '0.00' } },
   slices: [{
     duration: 'PT6H5M',
     segments: [{
@@ -39,8 +40,14 @@ test('a Duffel offer normalizes to the same shape as a Sabre itinerary', () => {
   assert.equal(flight.destination, 'LAX');
   assert.equal(flight.stops, 0);
   assert.equal(flight.cabin, 'ECONOMY');
+  assert.equal(flight.refundable, true);
   assert.deepEqual(flight.price, { amount: 164.08, currency: 'EUR' });
   assert.equal(flight.source, 'duffel');
+});
+
+test('refundability remains unknown when Duffel omits fare conditions', () => {
+  const [flight] = normalizeDuffelOffers([{ ...OFFER, conditions: undefined }]);
+  assert.equal(flight.refundable, undefined);
 });
 
 // Booking needs it; the Sabre shape has no equivalent field.

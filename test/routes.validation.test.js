@@ -39,6 +39,20 @@ test('invalid search inputs return 400 and missing simulator resources return 40
       ['/simulator/trips/http-test/nodes/absent/cancel', {}],
       ['/simulator/trips/http-test/flights/absent/delay', { minutes: 10 }],
     ]) assert.equal((await call(path, body)).status, 404, path);
+    const previousNodeEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'test';
+      const localTest = await call('/simulator/member-bookings/test-disruption', { memberTripId: 'bad' });
+      assert.ok([400, 503].includes(localTest.status), 'local route validates or safely reports sandbox disabled');
+      process.env.NODE_ENV = 'production';
+      assert.equal(
+        (await call('/simulator/member-bookings/test-disruption', { memberTripId: 'bad' })).status,
+        404,
+      );
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
     for (const minutes of [-1, 'nonsense']) {
       assert.equal((await call('/simulator/trips/http-test/flights/flight/delay', { minutes })).status, 400);
     }

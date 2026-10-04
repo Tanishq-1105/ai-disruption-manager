@@ -30,6 +30,14 @@ function option(id, hour = 12) {
     arrivalTime: `2026-10-12T${hour + 6}:00:00Z`,
     durationMinutes: 360,
     stops: 0,
+    refundable: true,
+    segments: [{
+      airline: 'ZZ', flightNumber: `-${id}`,
+      origin: 'JFK', destination: 'LAX',
+      departureTime: `2026-10-12T${hour}:00:00`,
+      arrivalTime: `2026-10-12T${hour + 6}:00:00`,
+      departureOffsetHours: 0, arrivalOffsetHours: 0,
+    }],
     price: { amount: 210, currency: 'USD' },
   };
 }
@@ -41,6 +49,8 @@ function seedCancelledTrip(provider, tripId = 'trip-1') {
     origin: 'JFK', destination: 'LAX',
     scheduledDeparture: '2026-10-12T11:00:00Z',
     scheduledArrival: '2026-10-12T17:00:00Z',
+    departureOffsetHours: -4,
+    arrivalOffsetHours: -7,
     projectedArrival: '2026-10-12T20:00:00Z', delayMinutes: 180,
     price: { amount: 200, currency: 'USD' },
     refundable: true, reversible: true, dependsOn: ['inbound'],
@@ -65,6 +75,7 @@ function stubDuffel({ refresh = offer => offer, confirm = order => order, afterC
         id, live_mode: false, total_amount: '210.00', total_currency: 'USD',
         expires_at: new Date(Date.now() + 60_000).toISOString(),
         passengers: [{ id: 'pas_test', type: 'adult' }],
+        conditions: { refund_before_departure: { allowed: true, penalty_amount: '0.00' } },
         slices: [{ duration: 'PT6H', segments: [{
           marketing_carrier: { iata_code: 'ZZ' }, marketing_carrier_flight_number: `-${id}`,
           origin: { iata_code: 'JFK', time_zone: 'Etc/UTC' }, destination: { iata_code: 'LAX', time_zone: 'Etc/UTC' },
@@ -172,7 +183,12 @@ test('recovered schedule uses segment timezone offsets and stores the actual fal
   const replacement = {
     ...option('fallback', 13),
     departureTime: '2026-10-12T12:00:00', arrivalTime: '2026-10-12T15:00:00',
-    segments: [{ departureOffsetHours: -4, arrivalOffsetHours: -7 }],
+    segments: [{
+      airline: 'ZZ', flightNumber: '-fallback',
+      origin: 'JFK', destination: 'LAX',
+      departureTime: '2026-10-12T12:00:00', arrivalTime: '2026-10-12T15:00:00',
+      departureOffsetHours: -4, arrivalOffsetHours: -7,
+    }],
   };
   const result = await runRecovery({
     tripId: 'trip-1', provider, searchReplacements: async () => [option('first'), replacement],
@@ -294,6 +310,75 @@ test('Duffel refresh within policy is paid exactly and is reflected in the node 
   const confirmation = result.audit.findIndex(entry => entry.action === 'CONFIRM_NEW');
   const release = result.audit.findIndex(entry => entry.action === 'RELEASE_OLD');
   assert.ok(confirmation >= 0 && release > confirmation);
+});
+
+test('member recovery reuses the saved passenger and adds trip ownership metadata to the sandbox order', async () => {
+  const calls = stubDuffel();
+  const provider = createProvider({ bookingProvider: 'duffel' });
+  const tripId = 'member-trip-member-123';
+  seedCancelledTrip(provider, tripId);
+  const passenger = {
+    title: 'ms', gender: 'f', given_name: 'Saved', family_name: 'Passenger',
+    born_on: '1990-01-01', email: 'saved@example.com', phone_number: '+442080160509',
+  };
+  const result = await runRecovery({
+    tripId, provider, bookingPassenger: passenger,
+    bookingMetadata: { tripshield_booking_id: 'member-123' },
+    searchReplacements: async () => [option('a')],
+  });
+  const create = calls.find(call => call.path === '/air/orders' && call.method === 'POST');
+  assert.equal(create.body.passengers[0].given_name, 'Saved');
+  assert.equal(create.body.passengers[0].family_name, 'Passenger');
+  assert.equal(create.body.metadata.tripshield_booking_id, 'member-123');
+  assert.ok(create.body.metadata.tripshield_recovery_key);
+  assert.equal(result.recoveries[0].execution.status, 'RECOVERED');
+});
+
+test('durable recovery resumes an uncertain order read-only and never repeats its POST', async () => {
+  const provider = createProvider({ bookingProvider: 'simulator' });
+  const tripId = 'durable-member-trip';
+  seedCancelledTrip(provider, tripId);
+  const candidate = option('saved-offer');
+  const idempotencyKey = `${tripId}:${candidate.id}:1`;
+  const confirmed = {
+    id: 'ord_reconciled', tripId, option: candidate, status: 'CONFIRMED',
+    bookingReference: 'RECON1', total: candidate.price, sandbox: true,
+    metadata: {
+      tripshield_booking_id: 'member-durable',
+      tripshield_recovery_key: idempotencyKey,
+    },
+  };
+  const orderCalls = [];
+  provider.prepareFlight = async () => { throw new Error('resume must not refresh'); };
+  provider.bookFlight = async () => { orderCalls.push('POST'); throw new Error('resume must not POST'); };
+  provider.findRecoveryBooking = async () => { orderCalls.push('READ_ORDER'); return confirmed; };
+  provider.getBooking = async id => {
+    orderCalls.push(`GET:${id}`);
+    return id === confirmed.id ? confirmed : {
+      id, status: 'CONFIRMED', sandbox: true,
+      metadata: { tripshield_booking_id: 'member-durable' },
+    };
+  };
+  provider.cancelBooking = async id => {
+    orderCalls.push(`CANCEL:${id}`);
+    return { id, status: 'CANCELLED' };
+  };
+  const checkpoints = [];
+  const result = await runRecovery({
+    tripId, provider, searchReplacements: async () => { throw new Error('resume must not search'); },
+    durableRecovery: {
+      resumeOnly: true,
+      record: {
+        state: 'BOOKING_REQUESTED', memberTripId: 'member-durable',
+        authorizedOption: candidate, idempotencyKey, candidateAttempt: 1,
+      },
+      checkpoint: async state => { checkpoints.push(state); },
+    },
+  });
+  assert.equal(result.recoveries[0].execution.status, 'RECOVERED');
+  assert.deepEqual(orderCalls, ['READ_ORDER', `GET:${tripId}-old`, `CANCEL:${tripId}-old`]);
+  assert.ok(checkpoints.indexOf('NEW_CONFIRMED') < checkpoints.indexOf('OLD_RELEASE_PENDING'));
+  assert.ok(checkpoints.includes('OLD_RELEASED'));
 });
 
 for (const payment of [undefined, { awaiting_payment: true }]) {

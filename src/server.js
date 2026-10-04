@@ -11,6 +11,7 @@ import trackingRouter from './routes/tracking.js';
 import historyRouter from './routes/history.js';
 import bookingRouter from './routes/bookings.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { startMemberRecoveryMonitor } from './bookings/memberRecoveryMonitor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, '..', 'public');
@@ -37,12 +38,17 @@ app.get('/api', (req, res) => {
       'GET /trips/:id',
       'GET /trips/:id/tracking',
       'POST /trips/:id/simulate-disruption',
+      'GET /trips/:id/recovery',
+      'POST /trips/:id/recovery/run',
+      'POST /trips/:id/recovery/approve',
+      'POST /trips/:id/recovery/reject',
       'POST /simulator/demo/seed',
       'POST /simulator/trips/:tripId/seed',
       'POST /simulator/trips/:tripId/nodes/:nodeId/cancel',
       'POST /simulator/trips/:tripId/flights/:flightId/delay',
       'POST /simulator/bookings/fail-next',
       'GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123',
+      'POST /simulator/member-bookings/test-disruption',
       'POST /simulator/member-bookings/disrupt',
       'POST /simulator/member-bookings/recover',
       'GET /simulator/trips/:tripId/analyse',
@@ -70,4 +76,5 @@ app.listen(config.port, () => {
   // Fail loudly at startup rather than confusingly at the moment of booking.
   const mismatch = providerMismatch();
   if (mismatch) console.warn(`WARNING: ${mismatch}`);
+  startMemberRecoveryMonitor();
 });

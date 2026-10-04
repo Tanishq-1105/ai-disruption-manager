@@ -21,6 +21,24 @@ import { composeMemberMessage } from './notifier.js';
 // repaired graph after its predecessor finishes, instead of buying another
 // flight from a concurrent search. Other trips can still recover independently.
 const recoveryQueues = new WeakMap();
+const APPROVABLE_POLICY_RULES = new Set(['COST_CAP', 'ARRIVAL_WINDOW', 'OVERNIGHT', 'CABIN', 'NON_REFUNDABLE']);
+
+function explicitApprovalCandidate(decision, ranked, execution) {
+  if (execution?.status !== 'NOTHING_AUTHORISED') return null;
+  const escalation = decision.escalations.find(item => item.action === 'REBOOK_FLIGHT');
+  const option = ranked[0]?.option;
+  if (!escalation || !option || !escalation.violations?.length
+      || !escalation.violations.every(issue => APPROVABLE_POLICY_RULES.has(issue.rule))
+      || !decision.actions.every(action => action.action !== 'REBOOK_FLIGHT')) return null;
+  const requiredChecks = new Set(['SCHEDULE', 'ITINERARY', 'CABIN', 'REFUNDABILITY_KNOWN']);
+  if ([...requiredChecks].some(rule => !escalation.checks?.some(check => check.rule === rule && check.passed))) return null;
+  return {
+    option: structuredClone(option),
+    policy: structuredClone(decision.policy),
+    policyVersion: decision.policyVersion,
+    violations: structuredClone(escalation.violations),
+  };
+}
 
 /**
  * Runs one full recovery pass over a trip.
@@ -54,6 +72,9 @@ async function runRecoveryOnce({
   searchReplacements,
   policy = DEFAULT_POLICY,
   maxAttempts = 3,
+  bookingPassenger,
+  bookingMetadata,
+  durableRecovery,
   now = () => new Date().toISOString(),
 }) {
   const audit = [];
@@ -89,11 +110,16 @@ async function runRecoveryOnce({
     // --- Phase 4: pick --------------------------------------------------
     const departureDate = String(node.scheduledDeparture).slice(0, 10);
     const pending = getPendingRecovery({ provider, scope: node });
-    const candidates = pending ? [pending.option] : await searchReplacements({
-      origin: node.origin,
-      destination: node.destination,
-      departureDate,
-    });
+    const approvedRequest = durableRecovery?.approvedRecovery;
+    const candidates = approvedRequest ? [approvedRequest.approvalRequest.option]
+      : pending ? [pending.option]
+      : durableRecovery?.resumeOnly
+        ? [durableRecovery.record.authorizedOption].filter(Boolean)
+        : await searchReplacements({
+          origin: node.origin,
+          destination: node.destination,
+          departureDate,
+        });
 
     const original = {
       nodeId: node.id,
@@ -106,12 +132,19 @@ async function runRecoveryOnce({
       arrivalTime: node.scheduledArrival,
       stops: node.stops ?? 0,
       price: node.price,
+      refundable: node.refundable,
+      segments: node.segments,
+      departureOffsetHours: node.segments?.[0]?.departureOffsetHours ?? node.departureOffsetHours,
+      arrivalOffsetHours: node.segments?.at(-1)?.arrivalOffsetHours ?? node.arrivalOffsetHours,
     };
 
     const { ranked, rejected } = rankOptions(candidates, {
       original,
       // The member cannot board something that already left.
       readyAt: node.scheduledDeparture,
+      readyAtOffsetHours: node.segments?.[0]?.departureOffsetHours ?? node.departureOffsetHours,
+      requiredOrigin: node.origin,
+      requiredDestination: node.destination,
     });
 
     // --- Phase 5: policy ------------------------------------------------
@@ -135,6 +168,10 @@ async function runRecoveryOnce({
       audit,
       now,
       scope: node,
+      bookingPassenger,
+      bookingMetadata,
+      durableRecovery,
+      approvedRecovery: approvedRequest,
     });
 
     // Also attach the replacement when releasing the old ticket failed: the
@@ -173,6 +210,8 @@ async function runRecoveryOnce({
       execution: {
         status: execution.status,
         bookingId: execution.booking?.id ?? null,
+        bookingReference: execution.booking?.bookingReference ?? null,
+        total: execution.booking?.total ?? null,
         pendingBookingId: execution.pendingBookingId ?? null,
         detail: execution.detail ?? null,
         // The option that was actually booked, which is NOT necessarily the
@@ -183,6 +222,7 @@ async function runRecoveryOnce({
         summary: explainExecution(execution),
       },
       dependents: dependents.results,
+      approvalCandidate: explicitApprovalCandidate(decision, ranked, execution),
     });
 
     // Compose the member's message from the result that just happened, so what

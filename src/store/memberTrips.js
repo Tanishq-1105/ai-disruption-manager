@@ -59,6 +59,19 @@ export async function update(userId, id, statuses, fields, action, authorisedBy 
     { returnDocument: 'after', projection: { _id: 0 } }) ?? await getById(userId, id);
 }
 
+export async function replaceConfirmedOrder(userId, id, expectedOrderId, expectedRevision, fields) {
+  return (await collection()).findOneAndUpdate({
+    userId, id, status: 'CONFIRMED', orderId: expectedOrderId, updatedAt: expectedRevision,
+  }, {
+    $set: { ...fields, updatedAt: new Date().toISOString() },
+    $push: { audit: {
+      at: new Date().toISOString(),
+      action: 'AUTOMATIC_RECOVERY_APPLIED',
+      authorisedBy: 'AUTOMATIC_POLICY',
+    } },
+  }, { returnDocument: 'after', projection: { _id: 0 } });
+}
+
 export async function listByUser(userId) {
   return (await collection()).find({ userId, status: { $nin: ['QUOTED', 'FAILED'] } }, { projection: { _id: 0 } })
     .sort({ createdAt: -1 }).limit(100).toArray();
@@ -73,6 +86,29 @@ export async function listConfirmedByFlight({ airline, flightNumber }) {
     orderId: { $type: 'string' },
   }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).limit(1000).toArray();
   return records;
+}
+
+export async function listConfirmedForMonitoring({ afterId, limit = 100 } = {}) {
+  const query = {
+    status: 'CONFIRMED',
+    sandbox: true,
+    provider: 'duffel',
+    orderId: { $type: 'string' },
+    ...(afterId ? { _id: { $gt: afterId } } : {}),
+  };
+  return (await collection()).find(query, {
+    projection: { _id: 1, id: 1, userId: 1, orderId: 1 },
+  }).sort({ _id: 1 }).limit(limit).toArray();
+}
+
+export async function getConfirmedForMonitoringById(id) {
+  return (await collection()).findOne({
+    id,
+    status: 'CONFIRMED',
+    sandbox: true,
+    provider: 'duffel',
+    orderId: { $type: 'string' },
+  }, { projection: { _id: 0 } });
 }
 
 export async function _resetForTests() {
