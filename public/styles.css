@@ -193,6 +193,27 @@ body {
   gap: 10px;
 }
 
+.member-flight-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+
+.member-flight-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.member-flight-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
 .member-actions {
   display: flex;
   gap: 8px;

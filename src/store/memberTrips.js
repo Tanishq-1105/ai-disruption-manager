@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ObjectId } from 'mongodb';
 import { getDb } from './mongo.js';
 import { config } from '../config.js';
 
@@ -86,6 +87,17 @@ export async function listConfirmedByFlight({ airline, flightNumber }) {
     orderId: { $type: 'string' },
   }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).limit(1000).toArray();
   return records;
+}
+
+export async function listForAdmin({ afterId, limit = 100 } = {}) {
+  const query = {
+    sandbox: true,
+    provider: 'duffel',
+    orderId: { $type: 'string' },
+    ...(afterId ? { _id: { $gt: new ObjectId(afterId) } } : {}),
+  };
+  return (await collection()).find(query)
+    .sort({ _id: 1 }).limit(limit).toArray();
 }
 
 export async function listConfirmedForMonitoring({ afterId, limit = 100 } = {}) {

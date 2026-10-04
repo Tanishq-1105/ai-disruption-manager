@@ -39,6 +39,9 @@ test('invalid search inputs return 400 and missing simulator resources return 40
       ['/simulator/trips/http-test/nodes/absent/cancel', {}],
       ['/simulator/trips/http-test/flights/absent/delay', { minutes: 10 }],
     ]) assert.equal((await call(path, body)).status, 404, path);
+    assert.equal((await call('/simulator/member-bookings/all?limit=201')).status, 400);
+    assert.equal((await call('/simulator/member-bookings/all?limit=not-a-number')).status, 400);
+    assert.equal((await call('/simulator/member-bookings/all?afterId=invalid')).status, 400);
     const previousNodeEnv = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = 'test';

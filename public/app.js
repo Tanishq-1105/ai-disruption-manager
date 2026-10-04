@@ -17,15 +17,22 @@ const els = {
   memberAirline: document.getElementById('member-airline'),
   memberFlight: document.getElementById('member-flight'),
   memberFind: document.getElementById('member-find'),
+  memberAll: document.getElementById('member-all'),
   memberBookings: document.getElementById('member-bookings'),
+  memberSyncStatus: document.getElementById('member-sync-status'),
 };
 
+const MEMBER_SYNC_MS = 30_000;
 let currentTripId = null;
 let pollTimer = null;
 let memberQuery = null;
 let memberTripIds = [];
+let affectedMemberQuery = null;
+let affectedMemberTripIds = [];
 let localApprovalEnabled = false;
 let localTestDisruptionEnabled = false;
+let memberBookingsRefreshing = false;
+let memberSyncRequested = false;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -266,16 +273,53 @@ function renderMemberBookings(payload) {
   localApprovalEnabled = payload.localApprovalEnabled === true;
   localTestDisruptionEnabled = payload.localTestDisruptionEnabled === true;
   if (!payload.results.length) {
-    els.memberBookings.innerHTML = '<p class="empty-state">No confirmed sandbox bookings found for this flight.</p>';
+    els.memberBookings.innerHTML = '<p class="empty-state">No saved Duffel sandbox trips found.</p>';
     return;
   }
-  const actions = `<div class="member-actions">
+  const actions = memberQuery ? `<div class="member-actions">
     <button class="btn btn-small btn-warning" data-action="member-cancel">Simulate cancellation for all ${payload.count} passenger(s)</button>
     <button class="btn btn-small" data-action="member-delay">Simulate 90-minute delay for all</button>
     ${localTestDisruptionEnabled ? '<span class="muted">Per-trip test runs the automatic recovery path; it may create a Duffel sandbox order.</span>' : ''}
-  </div>`;
-  els.memberBookings.innerHTML = actions + payload.results.map((trip) =>
-    renderMemberTripCard(trip, trip.recovery)).join('');
+  </div>` : '';
+  if (memberQuery) {
+    els.memberBookings.innerHTML = actions + payload.results.map((trip) =>
+      renderMemberTripCard(trip, trip.recovery)).join('');
+    return;
+  }
+
+  const groups = new Map();
+  for (const trip of payload.results) {
+    const airline = trip.flight?.airline || 'Unknown airline';
+    const flightNumber = trip.flight?.flightNumber || 'Unknown flight';
+    const key = `${airline}:${flightNumber}`;
+    if (!groups.has(key)) groups.set(key, { airline, flightNumber, trips: [] });
+    groups.get(key).trips.push(trip);
+  }
+  els.memberBookings.innerHTML = [...groups.values()].map(group => {
+    const query = { airline: group.airline, flightNumber: group.flightNumber };
+    const confirmedCount = group.trips.filter(trip => trip.status === 'CONFIRMED').length;
+    const validFlight = /^[A-Z0-9]{2,3}$/.test(query.airline)
+      && /^[A-Z0-9]{3,8}$/.test(query.flightNumber)
+      && query.flightNumber.startsWith(query.airline);
+    const groupActions = confirmedCount && validFlight ? `<div class="member-actions">
+      <button class="btn btn-small btn-warning" data-action="member-group-cancel"
+        data-airline="${escapeHtml(query.airline)}" data-flight-number="${escapeHtml(query.flightNumber)}">
+        Simulate cancellation for ${confirmedCount} confirmed passenger(s)
+      </button>
+      <button class="btn btn-small" data-action="member-group-delay"
+        data-airline="${escapeHtml(query.airline)}" data-flight-number="${escapeHtml(query.flightNumber)}">
+        Simulate 90-minute delay
+      </button>
+    </div>` : '';
+    return `<section class="member-flight-group">
+      <div class="member-flight-heading">
+        <h3>${escapeHtml(group.airline)} ${escapeHtml(group.flightNumber)}</h3>
+        <span class="muted">${group.trips.length} trip(s)</span>
+      </div>
+      ${groupActions}
+      ${group.trips.map(trip => renderMemberTripCard(trip, trip.recovery)).join('')}
+    </section>`;
+  }).join('');
 }
 
 function renderLocalApproval(tripId, recovery) {
@@ -314,26 +358,75 @@ function renderMemberTripCard(trip, recovery) {
 async function findMemberBookings() {
   const airline = els.memberAirline.value.trim().toUpperCase();
   const flightNumber = els.memberFlight.value.trim().toUpperCase();
+  if (!airline || !flightNumber) {
+    showToast('Enter both airline and flight number, or choose All trips.');
+    return;
+  }
+  memberQuery = { airline, flightNumber };
+  await syncMemberBookings(true);
+}
+
+async function loadAllMemberBookings() {
+  memberQuery = null;
+  await syncMemberBookings(true);
+}
+
+async function syncMemberBookings(force = false) {
+  if (memberBookingsRefreshing) {
+    memberSyncRequested ||= force;
+    return;
+  }
+  memberBookingsRefreshing = true;
+  const querySnapshot = memberQuery ? { ...memberQuery } : null;
   try {
-    const payload = await api(`/simulator/member-bookings?airline=${encodeURIComponent(airline)}&flightNumber=${encodeURIComponent(flightNumber)}`);
-    memberQuery = payload.query;
-    memberTripIds = payload.results.map((trip) => trip.id);
+    let payload;
+    if (querySnapshot) {
+      const result = await api(`/simulator/member-bookings?airline=${encodeURIComponent(querySnapshot.airline)}&flightNumber=${encodeURIComponent(querySnapshot.flightNumber)}`);
+      payload = { ...result, count: result.results.length };
+    } else {
+      const results = [];
+      let afterId = null;
+      let firstPage;
+      do {
+        const query = new URLSearchParams({ limit: '200' });
+        if (afterId) query.set('afterId', afterId);
+        const page = await api(`/simulator/member-bookings/all?${query}`);
+        firstPage ??= page;
+        results.push(...page.results);
+        afterId = page.nextCursor;
+      } while (afterId);
+      payload = { ...firstPage, results, count: results.length };
+    }
+    if (!payload) throw new Error('The admin bookings response was empty.');
+    memberTripIds = payload.results.map(trip => trip.id);
     renderMemberBookings(payload);
-    showToast(`Found ${payload.count} confirmed passenger(s).`);
+    els.memberSyncStatus.textContent = `Synced ${new Date().toLocaleTimeString()} · ${payload.count} trip(s)`;
   } catch (err) {
+    els.memberSyncStatus.textContent = 'Database sync failed';
+    if (!els.memberBookings.querySelector('.member-trip-card')) {
+      els.memberBookings.innerHTML = `<p class="empty-state">Could not load saved trips: ${escapeHtml(err.message)}</p>`;
+    }
     setStatus('error', err.message);
+  } finally {
+    memberBookingsRefreshing = false;
+    if (memberSyncRequested) {
+      memberSyncRequested = false;
+      void syncMemberBookings(true);
+    }
   }
 }
 
-async function disruptMemberBookings(type, minutes) {
-  if (!memberQuery) return;
+async function disruptMemberBookings(type, minutes, query = memberQuery) {
+  if (!query) return;
   try {
     const result = await api('/simulator/member-bookings/disrupt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...memberQuery, type, minutes }),
+      body: JSON.stringify({ ...query, type, minutes }),
     });
-    memberTripIds = result.affected.map((trip) => trip.memberTripId);
+    affectedMemberQuery = query;
+    affectedMemberTripIds = result.affected.map((trip) => trip.memberTripId);
+    memberTripIds = affectedMemberTripIds;
     showToast(`${result.affectedCount} passenger(s) affected.`);
     els.memberBookings.insertAdjacentHTML('afterbegin',
       '<div class="member-actions"><button class="btn btn-small btn-primary" data-action="member-recover">Recover all affected passengers</button></div>');
@@ -343,6 +436,7 @@ async function disruptMemberBookings(type, minutes) {
       await refresh();
       startPolling();
     }
+    await syncMemberBookings();
   } catch (err) {
     setStatus('error', err.message);
   }
@@ -473,8 +567,13 @@ async function runRecovery() {
 els.seedDemo.addEventListener('click', seedDemo);
 els.runRecovery.addEventListener('click', runRecovery);
 els.failNext.addEventListener('click', forceFailNext);
-els.refreshNow.addEventListener('click', refresh);
+els.refreshNow.addEventListener('click', async () => {
+  await Promise.all([refresh(), syncMemberBookings(true)]);
+});
 els.memberFind.addEventListener('click', findMemberBookings);
+els.memberAll.addEventListener('click', loadAllMemberBookings);
+setInterval(() => syncMemberBookings(), MEMBER_SYNC_MS);
+void loadAllMemberBookings();
 
 els.tripNodes.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
@@ -488,6 +587,18 @@ els.memberBookings.addEventListener('click', (event) => {
   if (!button) return;
   if (button.dataset.action === 'member-cancel') disruptMemberBookings('CANCELLED');
   if (button.dataset.action === 'member-delay') disruptMemberBookings('DELAYED', 90);
+  if (button.dataset.action === 'member-group-cancel') {
+    disruptMemberBookings('CANCELLED', undefined, {
+      airline: button.dataset.airline,
+      flightNumber: button.dataset.flightNumber,
+    });
+  }
+  if (button.dataset.action === 'member-group-delay') {
+    disruptMemberBookings('DELAYED', 90, {
+      airline: button.dataset.airline,
+      flightNumber: button.dataset.flightNumber,
+    });
+  }
   if (button.dataset.action === 'member-recover') recoverMemberBookings();
   if (button.dataset.action === 'member-approve') approveMemberRecovery(button);
   if (button.dataset.action === 'member-test-disruption') testMemberDisruption(button);
@@ -568,13 +679,13 @@ async function approveMemberRecovery(button) {
   }
 }
 
-async function recoverMemberBookings() {
-  if (!memberQuery || memberTripIds.length === 0) return;
+async function recoverMemberBookings(query = affectedMemberQuery, tripIds = affectedMemberTripIds) {
+  if (!query || tripIds.length === 0) return;
   try {
     const result = await api('/simulator/member-bookings/recover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...memberQuery, memberTripIds }),
+      body: JSON.stringify({ ...query, memberTripIds: tripIds }),
     });
     const recovered = result.results.filter((entry) => entry.status.startsWith('RECOVERED')).length;
     showToast(`${recovered} passenger recovery run(s) completed.`);

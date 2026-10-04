@@ -48,6 +48,7 @@ app.get('/api', (req, res) => {
       'POST /simulator/trips/:tripId/flights/:flightId/delay',
       'POST /simulator/bookings/fail-next',
       'GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123',
+      'GET /simulator/member-bookings/all',
       'POST /simulator/member-bookings/test-disruption',
       'POST /simulator/member-bookings/disrupt',
       'POST /simulator/member-bookings/recover',

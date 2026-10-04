@@ -498,6 +498,7 @@ routes. `GET /api` only returns endpoint discovery metadata.
 | `POST /simulator/trips/:tripId/flights/:flightId/delay` | None | Sets delay and projected arrival from `{ minutes }` |
 | `POST /simulator/bookings/fail-next` | None | Arms one new booking failure through either active adapter; cached retries do not consume it |
 | `GET /simulator/member-bookings?airline=ZZ&flightNumber=ZZ123` | None | Lists confirmed sandbox member bookings for an exact flight |
+| `GET /simulator/member-bookings/all` | Local non-production only | Cursor-pages all saved Duffel sandbox trips with an order ID for the admin panel |
 | `POST /simulator/member-bookings/test-disruption` | Local non-production only | Creates a synthetic cancellation for one saved sandbox trip and runs the poller recovery path; may create a Duffel test order |
 | `POST /simulator/member-bookings/disrupt` | None | Simulates cancellation or delay for every confirmed matching passenger |
 | `POST /simulator/member-bookings/recover` | None | Runs safe recovery independently for affected member trips and updates saved trips after confirmation; does not override member approval |

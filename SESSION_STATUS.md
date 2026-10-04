@@ -47,6 +47,13 @@ the saved trip's Track view can verify that new order. The saved Mongo trip
 changes only after confirmed recovery and uses a compare-and-set on its old
 order ID.
 
+The localhost admin panel now loads all saved Duffel sandbox trips with order
+IDs from MongoDB on page load, groups them by airline and flight number, and
+refreshes the current view every 30 seconds or on **All trips / reload**.
+Database reads use a loopback-only cursor-paged endpoint; flight-specific
+search remains available. Grouped trips retain confirmed-flight cohort actions,
+and every confirmed booking can expose the local synthetic-recovery test.
+
 The backend now polls confirmed Duffel sandbox member orders every five minutes
 by default. A Duffel-reported cancellation starts the existing durable recovery
 and policy flow automatically; escalation still waits for explicit approval.
@@ -88,6 +95,10 @@ Duffel test order; use only a test token and a disposable sandbox trip.
   failed** (serial run). Targeted monitor/member-booking/recovery-store tests,
   `git diff --check`, and editor diagnostics passed. Tests stub provider calls;
   they do not verify a live Duffel change or order.
+- 2026-10-05 admin trip listing: cursor paging, saved-trip listing, and invalid
+  cursor/limit validation verified; **320 backend tests passed, 0 failed**.
+  `node --check public/app.js`, `git diff --check`, and editor diagnostics
+  passed. A live browser UI check remains pending.
 - Added the per-trip **Test automatic recovery** button to the localhost Member
   bookings panel. The list endpoint exposes it only for loopback requests when
   local test mode is enabled; the click warns that a sandbox replacement order

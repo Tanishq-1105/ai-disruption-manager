@@ -121,6 +121,41 @@ router.get('/member-bookings', async (req, res, next) => {
   }
 });
 
+router.get('/member-bookings/all', async (req, res, next) => {
+  if (!isLocalBackendTestingRequest(req)) {
+    return res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
+  }
+  try {
+    const afterId = req.query.afterId;
+    if (afterId !== undefined && (typeof afterId !== 'string' || !/^[a-f\d]{24}$/i.test(afterId))) {
+      throw new HttpError(400, 'INVALID_CURSOR', 'Invalid member bookings page cursor.');
+    }
+    const limitParam = req.query.limit;
+    const rawLimit = limitParam === undefined ? 100
+      : typeof limitParam === 'string' ? Number(limitParam) : Number.NaN;
+    if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) {
+      throw new HttpError(400, 'INVALID_LIMIT', 'Page limit must be an integer from 1 to 200.');
+    }
+
+    const records = await memberTrips.listForAdmin({ afterId, limit: rawLimit + 1 });
+    const hasMore = records.length > rawLimit;
+    const page = hasMore ? records.slice(0, rawLimit) : records;
+    const results = await Promise.all(page.map(async record => ({
+      ...publicMemberTrip(record),
+      recovery: await getMemberRecoveryStatus({ userId: record.userId, memberTripId: record.id }),
+    })));
+    res.json({
+      count: results.length,
+      nextCursor: hasMore ? page.at(-1)._id.toHexString() : null,
+      localApprovalEnabled: isLocalBackendTestingRequest(req),
+      localTestDisruptionEnabled: localSandboxRecoveryTestingEnabled(req),
+      results,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/member-bookings/test-disruption', async (req, res, next) => {
   if (!isLocalBackendTestingRequest(req)) {
     return res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });

@@ -70,6 +70,27 @@ test('confirmed booking is automatically saved to its owner, with real reference
   assert.equal('fingerprint' in trip, false);
 });
 
+test('admin trip listing pages all saved Duffel sandbox orders with cursor ordering', async () => {
+  const { service } = setup();
+  const firstQuote = await service.quote({ userId: 'member-a', offerId: 'off_test001' });
+  const first = await service.book(requestFor(firstQuote));
+
+  const secondQuote = await service.quote({ userId: 'member-b', offerId: 'off_test001' });
+  const second = await service.book(requestFor(secondQuote, { userId: 'member-b' }));
+
+  const pageOne = await store.listForAdmin({ limit: 1 });
+  assert.equal(pageOne.length, 1);
+  assert.equal(pageOne[0].sandbox, true);
+  assert.equal(pageOne[0].provider, 'duffel');
+  assert.equal(typeof pageOne[0].orderId, 'string');
+
+  const pageTwo = await store.listForAdmin({ afterId: pageOne[0]._id.toHexString(), limit: 1 });
+  assert.equal(pageTwo.length, 1);
+  assert.equal(pageOne[0].id, first.id);
+  assert.equal(pageTwo[0].id, second.id);
+  assert.deepEqual(await store.listForAdmin({ afterId: pageTwo[0]._id.toHexString(), limit: 1 }), []);
+});
+
 test('owner can simulate a cancellation on a confirmed sandbox trip', async () => {
   const { service, disruptions } = setup();
   const quote = await service.quote({ userId: 'member-a', offerId: 'off_test001' });

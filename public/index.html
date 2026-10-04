@@ -57,16 +57,17 @@
     <section class="panel member-panel">
       <div class="panel-header">
         <h2>Member bookings</h2>
-        <span class="muted">Duffel sandbox cohort simulator</span>
+        <span id="member-sync-status" class="muted">Loading saved trips…</span>
       </div>
-      <p class="muted">Find confirmed sandbox passengers on the same airline and flight. Use the per-passenger test button to run automatic recovery, or simulate one disruption for everyone on that flight. The test button can create a Duffel sandbox replacement order and is available only on this machine outside production.</p>
+      <p class="muted">Saved Duffel sandbox trips are loaded from the database, grouped by flight, and refreshed every 30 seconds. The per-passenger test button runs automatic recovery and may create a sandbox replacement order.</p>
       <div class="member-controls">
         <label>Airline <input id="member-airline" value="ZZ" maxlength="3" /></label>
         <label>Flight <input id="member-flight" placeholder="ZZ123" maxlength="8" /></label>
         <button id="member-find" class="btn btn-ghost">Find bookings</button>
+        <button id="member-all" class="btn btn-ghost">All trips / reload</button>
       </div>
       <div id="member-bookings" class="member-bookings">
-        <p class="empty-state">Enter an airline and flight number to load saved sandbox bookings.</p>
+        <p class="empty-state">Loading saved sandbox bookings from the database…</p>
       </div>
     </section>
   </main>
