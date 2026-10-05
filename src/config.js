@@ -16,10 +16,9 @@ export const config = {
   duffel: {
     accessToken: process.env.DUFFEL_ACCESS_TOKEN,
     baseUrl: process.env.DUFFEL_BASE_URL || 'https://api.duffel.com',
-    // Duffel Airways is the deterministic test carrier used by the sandbox.
-    // Keep this enabled in production deployments that are still test-mode
-    // deployments; it does not enable live booking.
-    airwaysOnly: process.env.DUFFEL_AIRWAYS_ONLY !== 'false',
+    // Include all Duffel-returned carriers by default. Set this to 'true' only
+    // when a demo specifically needs Duffel Airways inventory (carrier ZZ).
+    airwaysOnly: process.env.DUFFEL_AIRWAYS_ONLY === 'true',
     airlineCode: process.env.DUFFEL_AIRLINE_CODE || 'ZZ',
   },
   googlePlaces: {

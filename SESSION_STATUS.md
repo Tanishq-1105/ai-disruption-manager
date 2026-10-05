@@ -44,8 +44,9 @@ is updated only after the replacement is independently confirmed.
   `main` against `origin/main`. Configure `GOOGLE_MAPS_API_KEY` in the backend
   `.env` locally to enable live suggestions; no key was added to the repository.
 - The mobile flight-search endpoint now rejects non-Duffel provider selection;
-  the airport-only suggestion flow resolves IATA through Duffel, and the
-  existing Duffel Airways carrier filter remains enabled by default.
+  the airport-only suggestion flow resolves IATA through Duffel. All Duffel
+  carriers are now included by default; set `DUFFEL_AIRWAYS_ONLY=true` only for
+  Duffel Airways-only test inventory.
 - Mobile flight search now validates From airport, To airport, and departure
   date before navigation; Results also blocks malformed route params before
   calling the API, replacing an avoidable HTTP 400 with a field-specific prompt.
